@@ -21,7 +21,7 @@ export function toOptionGroups(product: ProductDetail): OptionGroupData[] {
       is_required: false,
       min_select: 0,
       max_select: g.topping_items.length,
-      multi: true,
+      source: "topping",
       sort_order: g.sort_order,
       created_at: g.created_at,
       product_options: g.topping_items.map((t) => ({
@@ -65,6 +65,7 @@ export function chosenOptions(
           optionId: opt.id,
           optionName: opt.name,
           priceDelta: Number(opt.price_delta),
+          source: group.source,
         });
       }
     }

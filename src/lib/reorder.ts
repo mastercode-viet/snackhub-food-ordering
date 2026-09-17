@@ -100,6 +100,7 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
       optionId: o!.id,
       optionName: o!.name,
       priceDelta: Number(o!.price_delta),
+      source: o!.source,
     }));
     const optionsPrice = cartOptions.reduce((s, o) => s + o.priceDelta, 0);
 

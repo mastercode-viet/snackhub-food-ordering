@@ -20,6 +20,12 @@ export type CartOption = {
   optionId: string;
   optionName: string;
   priceDelta: number;
+  /**
+   * Chỉ để hiển thị: dòng giỏ tách riêng nhãn "Topping:" cho nhóm topping.
+   * Để optional nên giỏ lưu từ trước khi có topping vẫn đọc được, không cần
+   * nâng version persist — thiếu trường thì hiểu là option lẻ.
+   */
+  source?: "topping";
 };
 
 /** Dòng sản phẩm lẻ, có thể có option tuỳ biến — hành vi y hệt từ trước. */

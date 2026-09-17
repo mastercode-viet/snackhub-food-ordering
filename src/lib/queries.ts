@@ -329,7 +329,10 @@ export async function fetchProducts(params: {
 export type SelectedOption = Pick<
   Tables<"product_options">,
   "id" | "group_id" | "name" | "price_delta" | "is_available"
->;
+> & {
+  /** Snapshot đơn cũ không ghi nguồn, nên suy ra từ bảng tra được id. */
+  source?: "topping";
+};
 
 /**
  * Lấy trạng thái hiện tại của các lựa chọn — dùng khi mua lại đơn cũ.
@@ -353,7 +356,7 @@ export async function fetchOptionsByIds(ids: string[]): Promise<SelectedOption[]
     .in("id", missing);
   if (tErr) throw tErr;
 
-  return [...found, ...(toppings ?? [])];
+  return [...found, ...(toppings ?? []).map((t) => ({ ...t, source: "topping" as const }))];
 }
 
 // ── Combo (gộp món) ──────────────────────────────────────────────────────

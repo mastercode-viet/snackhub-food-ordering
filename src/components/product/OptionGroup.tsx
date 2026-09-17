@@ -6,11 +6,12 @@ import type { Tables } from "@/types/database";
 export type OptionGroupData = Tables<"product_option_groups"> & {
   product_options: Tables<"product_options">[];
   /**
-   * Ép chế độ chọn nhiều bất kể max_select. Nhóm topping luôn cần cờ này:
+   * Nhóm này đến từ đâu. Nhóm topping luôn chọn nhiều bất kể max_select:
    * nhóm chỉ còn 1 topping mà rơi vào nhánh radio thì khách tick xong không
-   * bỏ ra được nữa, dù topping vốn là tuỳ chọn.
+   * bỏ ra được nữa, dù topping vốn là tuỳ chọn. Giá trị này còn theo dòng
+   * giỏ hàng xuống tới nhãn "Topping:" ở CartLine.
    */
-  multi?: boolean;
+  source?: "topping";
 };
 
 function deltaLabel(delta: number): string | null {
@@ -23,7 +24,7 @@ function badgeText(group: OptionGroupData): string {
   if (group.is_required) {
     return min === group.max_select ? `Chọn ${min}` : `Chọn ${min}–${group.max_select}`;
   }
-  if (group.multi) return "Tuỳ chọn";
+  if (group.source === "topping") return "Tuỳ chọn";
   return group.max_select > 1 ? `Tối đa ${group.max_select}` : "Tuỳ chọn";
 }
 
@@ -36,7 +37,7 @@ export default function OptionGroup({
   selected: string[];
   onChange: (ids: string[]) => void;
 }) {
-  const single = !group.multi && group.max_select === 1;
+  const single = group.source !== "topping" && group.max_select === 1;
   const atMax = selected.length >= group.max_select;
 
   function toggle(optionId: string) {

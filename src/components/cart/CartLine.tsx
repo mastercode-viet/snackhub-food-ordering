@@ -20,9 +20,25 @@ export default function CartLine({
 }) {
   const issue = check?.issue ?? null;
   const blocked = check?.blocking ?? false;
+
   // Combo không có option tuỳ biến — dòng tóm tắt thay bằng danh sách món con.
+  // Sản phẩm lẻ thì tách topping ra dòng riêng có nhãn, vì topping là thứ
+  // khách chủ động thêm và trả tiền thêm, không nên lẫn với option như size.
   const optionSummary =
-    item.kind === "combo" ? item.items.map((i) => i.name).join(" · ") : item.options.map((o) => o.optionName).join(", ");
+    item.kind === "combo"
+      ? item.items.map((i) => i.name).join(" · ")
+      : item.options
+          .filter((o) => o.source !== "topping")
+          .map((o) => o.optionName)
+          .join(", ");
+
+  const toppingSummary =
+    item.kind === "combo"
+      ? ""
+      : item.options
+          .filter((o) => o.source === "topping")
+          .map((o) => o.optionName)
+          .join(", ");
 
   return (
     <motion.div
@@ -59,6 +75,11 @@ export default function CartLine({
 
           {optionSummary && (
             <p className="mt-0.5 truncate text-body-sm text-on-surface-variant">{optionSummary}</p>
+          )}
+          {toppingSummary && (
+            <p className="mt-0.5 truncate text-body-sm text-on-surface-variant">
+              <span className="font-bold text-secondary">Topping:</span> {toppingSummary}
+            </p>
           )}
           {item.note && (
             <p className="mt-0.5 truncate text-body-sm italic text-on-surface-variant/80">
