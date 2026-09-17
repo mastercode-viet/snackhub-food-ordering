@@ -9,37 +9,42 @@
  * Cách dùng:
  *   node scripts/contrast.mjs
  *
- * Đọc thẳng bảng màu từ tailwind.config.ts (transpile bằng esbuild có sẵn
- * trong node_modules qua Vite, không cần thêm dependency), rồi đo từng cặp
- * khai trong PAIRS bên dưới. Danh sách PAIRS phải cập nhật tay khi thêm
- * component mới ghép một cặp nền/chữ chưa từng có — grep các class
+ * Đọc thẳng bảng màu từ khối `:root` của src/index.css (nguồn sự thật duy
+ * nhất của màu — tailwind.config.ts chỉ ánh xạ tên token sang biến), rồi đo
+ * từng cặp khai trong PAIRS bên dưới. Danh sách PAIRS phải cập nhật tay khi
+ * thêm component mới ghép một cặp nền/chữ chưa từng có — grep các class
  * `bg-*` đi kèm `text-*`/`on-*` trong src/**\/*.tsx để tìm cặp mới.
  *
  * Exit code 1 nếu có cặp nào < 4.5:1 (AA cho chữ thường).
  */
 
-import { build } from "esbuild";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const configPath = path.join(root, "tailwind.config.ts");
+const cssPath = path.join(root, "src", "index.css");
 
-// ── Transpile tailwind.config.ts -> lấy object colors ──────────────────────
-async function loadColors() {
-  const result = await build({
-    entryPoints: [configPath],
-    bundle: false,
-    write: false,
-    platform: "node",
-    format: "esm",
-    target: "node18",
-  });
-  const code = result.outputFiles[0].text;
-  const dataUrl = "data:text/javascript;base64," + Buffer.from(code).toString("base64");
-  const mod = await import(dataUrl);
-  return mod.default.theme.extend.colors;
+/**
+ * Đọc bảng màu thẳng từ khối `:root` của src/index.css.
+ *
+ * Giá trị ở đó khai dạng "R G B" (ví dụ `--color-primary: 184 66 14;`) để
+ * Tailwind ghép được với <alpha-value>. Đọc từ nguồn thật thay vì chép lại
+ * một bảng riêng trong script: chép lại là kiểu gì cũng có ngày lệch.
+ */
+function loadColors() {
+  const css = readFileSync(cssPath, "utf8");
+  const colors = {};
+  const re = /--color-([a-z0-9-]+)\s*:\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\s*;/g;
+  let m;
+  while ((m = re.exec(css)) !== null) {
+    const [, name, r, g, b] = m;
+    colors[name] = "#" + [r, g, b].map((v) => Number(v).toString(16).padStart(2, "0")).join("");
+  }
+  if (Object.keys(colors).length === 0) {
+    throw new Error(`Không đọc được token màu nào từ ${cssPath}. Định dạng khai màu có thay đổi?`);
+  }
+  return colors;
 }
 
 // ── WCAG relative luminance + contrast ratio ────────────────────────────────
@@ -75,7 +80,7 @@ function blend(fgHex, alpha, bgHex) {
   return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-const colors = await loadColors();
+const colors = loadColors();
 
 /**
  * Mỗi entry: [nhãn, token chữ, token nền, tuỳ chọn { alpha, onBase }]

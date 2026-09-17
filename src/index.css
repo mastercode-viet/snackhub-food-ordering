@@ -2,6 +2,114 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * ── BẢNG MÀU SNACKHUB ───────────────────────────────────────────────────────
+ * Hướng: "Giấy trung tính + Mực + Cam nung" (phương án A, chốt 2026-09-17).
+ *
+ * TẠI SAO NỀN TRUNG TÍNH: bảng cũ dùng giấy ngả xanh bơ #f1f5ef, và chính
+ * comment của bảng đó đã ghi rằng bản gốc #effdef phải hạ bão hoà vì "quá bạc
+ * hà, ảnh món đặt lên bị ám xanh". Hạ bão hoà chỉ làm nhẹ triệu chứng. Nền
+ * trung tính chữa dứt: ảnh đồ ăn giữ đúng sắc, mà ảnh mới là thứ bán hàng.
+ *
+ * ACCENT ĐƯỢC CỞI TRÓI: bảng cũ nhốt cam vào riêng giá tiền. Nay cam nung
+ * dùng cho cả giá LẪN các điểm hành động (nút thêm vào giỏ, pill danh mục
+ * đang chọn, badge giảm giá). Nút CTA lớn vẫn là mực, không phải cam — giữ
+ * một điểm tối làm neo bố cục.
+ *
+ * GIÁ TRỊ KHAI DẠNG "R G B" (không phải hex) để Tailwind ghép được với
+ * <alpha-value>, tức là `bg-secondary-fixed/50` vẫn chạy. Đây cũng là lý do
+ * dùng CSS variable thay vì hex thẳng trong tailwind.config.ts: thêm dark mode
+ * sau này chỉ cần thêm một khối :root khác, không phải sửa lại component nào.
+ *
+ * TƯƠNG PHẢN: mọi cặp nền/chữ phải đạt tối thiểu 4.5:1 (WCAG AA).
+ * Đổi giá trị nào thì chạy `node scripts/contrast.mjs` trước khi commit —
+ * script đọc thẳng từ file này nên không có chuyện tài liệu lệch khỏi code.
+ */
+:root {
+  /* ── Nền & mặt phẳng: xám trung tính, chỉ ấm một hơi thở ─────────────── */
+  --color-background: 244 244 242;
+  --color-surface: 244 244 242;
+  --color-surface-bright: 255 255 255;
+  --color-surface-dim: 225 225 222;
+  --color-surface-variant: 234 234 231;
+  --color-surface-tint: 23 24 26;
+  --color-surface-container-lowest: 255 255 255;
+  --color-surface-container-low: 249 249 247;
+  --color-surface-container: 239 239 236;
+  --color-surface-container-high: 232 232 229;
+  --color-surface-container-highest: 224 224 221;
+  /* Mực trung tính. Cố ý KHÔNG ngả nâu espresso (#1a1714 và họ hàng nằm
+     trong danh sách hex bị §4.2 của skill design-taste-frontend cấm). */
+  --color-inverse-surface: 23 24 26;
+  --color-inverse-on-surface: 244 244 242;
+
+  /* ── Chữ ──────────────────────────────────────────────────────────────── */
+  --color-on-background: 23 24 26;
+  --color-on-surface: 23 24 26;
+  --color-on-surface-variant: 91 94 97;
+  /* `outline` CHỈ dùng cho đường kẻ và viền, KHÔNG dùng làm màu chữ:
+     trên nền giấy nó chỉ đạt ~2.4:1, đọc không ra. Giá gốc gạch ngang phải
+     dùng `on-surface-variant`. */
+  --color-outline: 167 170 172;
+  --color-outline-variant: 227 227 224;
+
+  /* ── Primary: cam nung — giá tiền VÀ điểm hành động ───────────────────── */
+  --color-primary: 184 66 14;
+  --color-on-primary: 255 255 255;
+  /* Dùng làm MẢNG NỀN có chữ trắng đè lên (badge %, nút thêm, pill đang
+     chọn), nên trần sáng bị chặn bởi AA với chữ trắng, không phải bởi thẩm mỹ.
+     Muốn sáng hơn thì phải đổi luôn màu chữ ở mọi chỗ ghép với nó. */
+  --color-primary-container: 194 65 12;
+  --color-on-primary-container: 255 255 255;
+  --color-primary-fixed: 250 224 211;
+  --color-primary-fixed-dim: 240 197 173;
+  --color-on-primary-fixed: 126 45 7;
+  --color-on-primary-fixed-variant: 184 66 14;
+  --color-inverse-primary: 255 182 147;
+
+  /* ── Secondary: xanh lá — CHỈ dùng cho trạng thái ─────────────────────── */
+  /* Nền giờ đã trung tính nên xanh lá bật lên rõ hơn hẳn so với bảng cũ
+     (nền xanh cạnh chữ xanh). Đừng làm nhạt nó đi. */
+  --color-secondary: 21 128 61;
+  --color-on-secondary: 255 255 255;
+  --color-secondary-container: 215 236 221;
+  --color-on-secondary-container: 12 61 30;
+  --color-secondary-fixed: 215 236 221;
+  --color-secondary-fixed-dim: 178 216 191;
+  --color-on-secondary-fixed: 12 61 30;
+  --color-on-secondary-fixed-variant: 21 128 61;
+
+  /* ── Tertiary: cát ám vàng — cảnh báo nhẹ, nhãn phụ ───────────────────── */
+  --color-tertiary: 109 86 38;
+  --color-on-tertiary: 255 255 255;
+  --color-tertiary-container: 241 231 207;
+  --color-on-tertiary-container: 72 56 15;
+  --color-tertiary-fixed: 241 231 207;
+  --color-tertiary-fixed-dim: 221 208 176;
+  --color-on-tertiary-fixed: 64 50 13;
+  --color-on-tertiary-fixed-variant: 109 86 38;
+
+  /* ── Lỗi ──────────────────────────────────────────────────────────────── */
+  /* Đỏ thẫm. Khoảng cách hue với cam nung chỉ ~18°, giống hệt khoảng cách của
+     bảng màu cũ — tức là không tệ đi, nhưng cũng chưa được cải thiện. Chỗ
+     phân biệt thật vẫn phải dựa vào icon và ngữ cảnh, không dựa vào riêng màu. */
+  --color-error: 185 28 28;
+  --color-on-error: 255 255 255;
+  --color-error-container: 255 218 214;
+  --color-on-error-container: 140 0 9;
+
+  /* ── Ngoài hệ M3, chỉ phục vụ các dải khuyến mãi ở Trang chủ ──────────── */
+  /* Bốn dải đó cố ý giữ giọng ồn ào, tách khỏi ngôn ngữ tiết chế của phần
+     còn lại. Đây là quyết định có chủ đích, không phải bỏ sót. */
+  --color-info: 11 58 142;
+  --color-on-info: 255 255 255;
+  --color-sale: 255 212 38;
+  --color-on-sale: 113 48 10;
+
+  /* Màu đổ bóng, nhuộm theo hue mực. Cấm bóng đen thuần trên nền sáng. */
+  --shadow-rgb: 23 24 26;
+}
+
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
@@ -45,9 +153,27 @@
    * nhưng không nơi nào dùng, đã xoá ở Phase 0 của đợt redesign 2026-09.
    */
   .glass-nav {
-    background: rgba(255, 255, 255, 0.85);
+    background: rgb(var(--color-surface-container-lowest) / 0.85);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border-top: 1px solid rgba(255, 255, 255, 0.9);
+    border-top: 1px solid rgb(var(--color-surface-container-lowest) / 0.9);
+  }
+
+  /* Nền mờ không phải lúc nào cũng có: Firefox tắt backdrop-filter theo mặc
+     định trong một số cấu hình, và người dùng bật "giảm độ trong suốt" cũng
+     mất hiệu ứng. Khi đó nav phải đục hẳn, nếu không chữ sẽ đè lên nội dung
+     đang cuộn phía sau và không đọc được. */
+  @supports not (backdrop-filter: blur(1px)) {
+    .glass-nav {
+      background: rgb(var(--color-surface-container-lowest));
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-nav {
+      background: rgb(var(--color-surface-container-lowest));
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
 }
