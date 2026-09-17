@@ -75,7 +75,7 @@ export default function ProductRail({
        * StoreStatus.tsx) thay vì cả dải nền — accent hiếm mới có sức nặng.
        */}
       <div className="overflow-hidden rounded-card-lg bg-surface-container-lowest shadow-card border border-outline-variant/40">
-        <header className="flex items-center justify-between gap-3 px-4.5 pb-2 pt-4 border-b border-outline-variant/40">
+        <header className="flex items-center justify-between gap-3 px-4 pb-2 pt-4 border-b border-outline-variant/40">
           <div className="flex min-w-0 flex-wrap items-center gap-2.5">
             {icon && (
               <span className={`grid size-8 shrink-0 place-items-center rounded-full ${iconTone}`}>

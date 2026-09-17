@@ -12,7 +12,7 @@ export default function SearchBar({
 }) {
   return (
     <div className="relative flex w-full items-center">
-      <div className="group flex h-12 w-full items-center gap-3 rounded-full bg-surface-container-lowest/90 backdrop-blur-md px-4.5 border border-outline-variant/80 shadow-card transition-all duration-300 focus-within:border-primary focus-within:shadow-card-hover focus-within:ring-2 focus-within:ring-primary/20">
+      <div className="group flex h-12 w-full items-center gap-3 rounded-full bg-surface-container-lowest/90 backdrop-blur-md px-4 border border-outline-variant/80 shadow-card transition-all duration-300 focus-within:border-primary focus-within:shadow-card-hover focus-within:ring-2 focus-within:ring-primary/20">
         <input
           type="search"
           inputMode="search"

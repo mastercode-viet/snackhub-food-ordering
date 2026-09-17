@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlarmClock, ChevronRight, MapPin, PiggyBank, Sparkles, User } from "lucide-react";
+import { ChevronRight, MapPin, User } from "lucide-react";
 import SearchBar from "@/components/home/SearchBar";
 import CategoryPills from "@/components/home/CategoryPills";
 import CountdownTimer from "@/components/home/CountdownTimer";
@@ -107,7 +107,7 @@ export default function HomePage() {
             <div className="flex min-w-0 flex-col">
               <StoreStatusLine isOpen={storeOpen.data} />
               <h1 className="mt-0.5 text-headline-md tracking-tight text-on-surface">
-                Hôm nay ăn gì thượng đế ơi?
+                Thượng đế nay ăn gì?
               </h1>
             </div>
             <StoreHoursBadge settings={settings.data} />
@@ -170,10 +170,12 @@ export default function HomePage() {
           // Giữ "FLASH" tô cam để giữ chút khẩn cấp; "SALE" ăn theo màu mực
           // mặc định của <h2> dùng chung, không cần tự set màu riêng nữa.
           <>
-            <span className="text-primary">FLASH</span> SALE
+            <h2 className="ml-2.5 text-2xl font-extrabold uppercase tracking-tight text-neutral-900">
+              <span className="text-red-600">FLASH</span> SALE
+            </h2>
           </>
         }
-        icon={<AlarmClock size={20} strokeWidth={2.6} />}
+
         products={rails.flashSale}
         loading={allProducts.loading}
         error={allProducts.error}
@@ -186,8 +188,14 @@ export default function HomePage() {
       />
 
       <ProductRail
-        title="Must Try"
-        icon={<Sparkles size={20} strokeWidth={2.4} />}
+        title={
+          <>
+            <h2 className=" ml-2.5 text-2xl font-extrabold tracking-tight text-neutral-900">
+              <span className="text-orange-600">Must</span> Try
+            </h2>
+          </>
+        }
+
         tone="banner-info"
         subtitle="Giảm tới 50%"
         products={rails.mustTry}
@@ -199,8 +207,12 @@ export default function HomePage() {
       />
 
       <ProductRail
-        title="Ăn Ngon Rẻ"
-        icon={<PiggyBank size={20} strokeWidth={2.4} />}
+        title={
+          <h2 className="ml-2.5 text-2xl font-extrabold tracking-tight text-neutral-900">
+            <span className="text-orange-600">Ăn Ngon</span> Rẻ
+          </h2>
+        }
+
         tone="banner-primary"
         subtitle="Giá mềm nhất quán"
         products={rails.goodCheap}
