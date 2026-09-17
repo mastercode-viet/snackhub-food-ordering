@@ -117,6 +117,12 @@ const PAIRS = [
   ["Banner StoreClosed (tertiary-fixed/70 trên nền trang)", "on-tertiary-fixed", "tertiary-fixed", { alpha: 0.7, onBase: colors.background }],
   // ProductRail: badge danh mục trên card trắng.
   ["Badge danh mục ProductRail (primary-fixed/80)", "on-primary-fixed", "primary-fixed", { alpha: 0.8, onBase: "#ffffff" }],
+
+  // ── Khu vực Admin ────────────────────────────────────────────────────────
+  // Pill "Còn bán" / "Đang nhận đơn", và nút chọn món đã tick.
+  ["Pill trạng thái Admin (secondary-container)", "on-secondary-container", "secondary-container"],
+  // Pill "Tạm hết" / badge số topping hết hàng.
+  ["Pill tạm hết Admin (error-container)", "on-error-container", "error-container"],
 ];
 
 let allPass = true;
