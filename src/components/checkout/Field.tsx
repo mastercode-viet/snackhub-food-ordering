@@ -23,7 +23,7 @@ export default function Field({
       <input
         {...inputProps}
         aria-invalid={Boolean(error)}
-        className={`w-full rounded-2xl px-4 py-3 text-body-md text-on-surface transition-all placeholder:text-on-surface-variant/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-on-surface focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-lowest ${
+        className={`w-full rounded-card px-4 py-3 text-body-md text-on-surface transition-all placeholder:text-on-surface-variant/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-lowest ${
           error
             ? "bg-error-container focus:bg-error-container"
             : "bg-surface-container-low/70 focus:bg-surface-container"

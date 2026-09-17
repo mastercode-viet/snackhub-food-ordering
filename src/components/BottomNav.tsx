@@ -24,7 +24,7 @@ export default function BottomNav() {
           <NavLink to="/" className="flex items-center gap-3 transition-transform hover:scale-105 active:scale-95">
             <img
               src="/logo.png"
-              alt="Bếp Của Thỏ"
+              alt="SnackHub"
               width={156}
               height={160}
               className="size-10 shrink-0 object-contain drop-shadow-sm"
@@ -72,7 +72,7 @@ export default function BottomNav() {
       </header>
 
       {/* ── Mobile: thanh nổi mép dưới ──────────────────────────────────── */}
-      <nav className="fixed inset-x-0 bottom-0 z-50 glass-nav border-t border-white/60 shadow-sheet pb-safe md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-50 glass-nav border-t border-surface-container-lowest/60 shadow-sheet pb-safe md:hidden">
         <div className="px-margin-mobile">
           <div className="flex h-16 items-center justify-around">
             {tabs.map(({ to, label, icon: Icon, badge }) => (
@@ -87,7 +87,7 @@ export default function BottomNav() {
                     {isActive && (
                       <motion.div
                         layoutId="activeBottomTab"
-                        className="absolute inset-x-2 inset-y-1.5 rounded-2xl bg-surface-container/80 -z-10"
+                        className="absolute inset-x-2 inset-y-1.5 rounded-card bg-surface-container/80 -z-10"
                         transition={{ type: "spring", stiffness: 380, damping: 30 }}
                       />
                     )}

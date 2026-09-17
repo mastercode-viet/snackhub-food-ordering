@@ -35,7 +35,7 @@ export default function ToastHost() {
           return (
             <div
               key={t.id}
-              className={`pointer-events-auto flex items-center gap-2.5 rounded-2xl px-4 py-3 shadow-lift ${bg} ${fg}`}
+              className={`pointer-events-auto flex items-center gap-2.5 rounded-card px-4 py-3 shadow-lift ${bg} ${fg}`}
             >
               <Icon size={18} strokeWidth={2.4} className="shrink-0" />
               <p className="min-w-0 flex-1 text-label-md">{t.message}</p>

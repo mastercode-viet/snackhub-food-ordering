@@ -5,13 +5,13 @@
  * tải xong là layout nhảy. Mỗi khung dưới đây soi chiếu 1-1 với component nó thay thế.
  */
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-xl bg-surface-container-high ${className}`} />;
+  return <div className={`animate-pulse rounded-card-sm bg-surface-container-high ${className}`} />;
 }
 
 /**
  * Khung chờ cho 1 thẻ sản phẩm trong lưới 2 cột.
- * Soi chiếu `components/product/ProductCard.tsx`: vỏ rounded-card + p-2.5,
- * ảnh h-32 rounded-xl, tên 2 dòng, hàng giá có nút tròn size-9.
+ * Soi chiếu `components/product/ProductCard.tsx`: vỏ rounded-card + p-3,
+ * ảnh h-32 rounded-card-sm, tên 2 dòng, hàng giá có nút tròn size-9 rounded-full.
  */
 export function ProductCardSkeleton() {
   return (
@@ -29,7 +29,7 @@ export function ProductCardSkeleton() {
             <Skeleton className="h-3 w-10" />
             <Skeleton className="h-5 w-20" />
           </div>
-          <Skeleton className="size-10 shrink-0 rounded-xl" />
+          <Skeleton className="size-9 shrink-0 rounded-full" />
         </div>
       </div>
     </div>
@@ -49,8 +49,9 @@ export function ProductGridSkeleton({ count = 4 }: { count?: number }) {
 
 /**
  * Khung chờ cho dải sản phẩm cuộn ngang.
- * Soi chiếu `components/home/ProductRail.tsx`: thẻ "tile" rộng w-40 với ảnh
- * vuông, thẻ "wide" rộng w-72 với ảnh size-20 bên trái.
+ * Soi chiếu `components/home/ProductRail.tsx`: thẻ "tile" rộng w-36 với ảnh
+ * vuông rounded-card-sm, thẻ "wide" rộng w-72 với ảnh size-20 rounded-card-sm
+ * bên trái — cả hai layout đều lồng ảnh bo góc nhỏ hơn vỏ card ngoài.
  */
 export function ProductRailSkeleton({
   layout = "tile",
@@ -64,7 +65,7 @@ export function ProductRailSkeleton({
       <div className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
         {Array.from({ length: count }, (_, i) => (
           <div key={i} className="flex w-72 shrink-0 gap-3 p-1">
-            <Skeleton className="size-20 shrink-0 rounded-card" />
+            <Skeleton className="size-20 shrink-0 rounded-card-sm" />
             <div className="flex flex-1 flex-col gap-1.5">
               <Skeleton className="h-4 w-4/5" />
               <Skeleton className="h-4 w-3/5" />
@@ -80,7 +81,7 @@ export function ProductRailSkeleton({
     <div className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="flex w-36 shrink-0 flex-col gap-1.5 p-1.5">
-          <Skeleton className="aspect-square w-full rounded-card" />
+          <Skeleton className="aspect-square w-full rounded-card-sm" />
           <Skeleton className="mt-1 h-3 w-16" />
           <Skeleton className="h-4 w-4/5" />
           <Skeleton className="h-5 w-20" />

@@ -33,7 +33,7 @@ export default function Select({
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           aria-invalid={Boolean(error)}
-          className={`w-full appearance-none rounded-2xl py-3 pl-4 pr-9 text-body-md text-on-surface transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-on-surface focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-lowest disabled:opacity-50 ${
+          className={`w-full appearance-none rounded-card py-3 pl-4 pr-9 text-body-md text-on-surface transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container focus-visible:ring-offset-2 focus-visible:ring-offset-surface-container-lowest disabled:opacity-50 ${
             error ? "bg-error-container" : "bg-surface-container-low/70 focus:bg-surface-container"
           }`}
         >
