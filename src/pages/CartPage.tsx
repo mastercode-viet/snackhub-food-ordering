@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { closedMessage } from "@/components/home/StoreStatus";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, PlusCircle, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -40,7 +41,7 @@ export default function CartPage() {
     : belowMin
       ? `Đơn tối thiểu ${formatVnd(minOrder)} — bạn cần thêm ${formatVnd(minOrder - subtotal)} nữa.`
       : closed
-        ? "Ngoài giờ nhận đơn (6:00–18:00). Bạn quay lại sau nhé!"
+        ? closedMessage(settings.data)
         : null;
 
   if (items.length === 0) {

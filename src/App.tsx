@@ -17,6 +17,7 @@ const AdminToppingsPage = lazy(() => import("@/pages/admin/AdminToppingsPage"));
 const AdminOrdersPage = lazy(() => import("@/pages/admin/AdminOrdersPage"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/AdminDashboardPage"));
 const AdminCatalogPage = lazy(() => import("@/pages/admin/AdminCatalogPage"));
+const AdminSettingsPage = lazy(() => import("@/pages/admin/AdminSettingsPage"));
 
 const router = createBrowserRouter([
   {
@@ -52,6 +53,7 @@ const router = createBrowserRouter([
           { path: "thong-ke", element: <AdminDashboardPage /> },
           { path: "thuc-don", element: <AdminCatalogPage /> },
           { path: "toppings", element: <AdminToppingsPage /> },
+          { path: "cai-dat", element: <AdminSettingsPage /> },
         ],
       },
 

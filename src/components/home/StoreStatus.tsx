@@ -44,11 +44,29 @@ export function StoreStatusLine({ isOpen }: { isOpen: boolean | null }) {
 }
 
 /**
+ * Câu báo quán không nhận đơn, dùng chung cho giỏ hàng và trang đặt hàng.
+ *
+ * Phải sinh từ store_settings chứ không viết chết chuỗi "6:00–18:00": Admin
+ * đổi giờ trong DB mà chuỗi viết chết thì hai màn đó nói sai giờ cho khách.
+ * Tắt `is_open` là nghỉ thủ công, không liên quan khung giờ nên báo khác.
+ */
+export function closedMessage(settings: Tables<"store_settings"> | null): string {
+  if (settings && !settings.is_open) return "Quán đang tạm nghỉ. Bạn quay lại sau nhé!";
+  if (!settings) return "Hiện chưa nhận đơn. Bạn quay lại sau nhé!";
+  return `Ngoài giờ nhận đơn (${shortTime(settings.open_time)}–${shortTime(settings.close_time)}). Bạn quay lại sau nhé!`;
+}
+
+/**
  * Banner chặn đặt hàng ngoài giờ. Đây mới chỉ là lớp chặn ở giao diện —
  * Edge Function `create-order` vẫn kiểm tra lại bằng chính hàm is_store_open().
  */
 export function StoreClosedBanner({ settings }: { settings: Tables<"store_settings"> | null }) {
-  const range = settings ? `${shortTime(settings.open_time)}-${shortTime(settings.close_time)}` : "6:00-18:00";
+  const body =
+    settings && !settings.is_open
+      ? "Hôm nay quán nghỉ bán. Bạn vẫn xem menu thoải mái, quay lại đặt sau nhé!"
+      : `SnackHub chỉ nhận đơn trong khung ${
+          settings ? `${shortTime(settings.open_time)}-${shortTime(settings.close_time)}` : "giờ mở cửa"
+        }. Bạn vẫn xem menu thoải mái, quay lại đặt sau nhé!`;
 
   return (
     <div className="mx-margin-mobile mt-3 flex items-start gap-3 rounded-card bg-tertiary-fixed/70 p-3.5 shadow-card">
@@ -60,9 +78,7 @@ export function StoreClosedBanner({ settings }: { settings: Tables<"store_settin
       </span>
       <div>
         <p className="text-label-md text-on-tertiary-fixed">Quán đang tạm nghỉ</p>
-        <p className="mt-0.5 text-body-sm text-on-tertiary-fixed-variant">
-          SnackHub chỉ nhận đơn trong khung {range}. Bạn vẫn xem menu thoải mái, quay lại đặt sau nhé!
-        </p>
+        <p className="mt-0.5 text-body-sm text-on-tertiary-fixed-variant">{body}</p>
       </div>
     </div>
   );

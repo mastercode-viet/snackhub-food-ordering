@@ -64,6 +64,7 @@ function Sidebar() {
         <SidebarLink to="/admin/thuc-don" label="Thực đơn" />
         <SidebarLink to="/admin/thong-ke" label="Thống kê" />
         <SidebarLink to="/admin/toppings" label="Nhóm topping" />
+        <SidebarLink to="/admin/cai-dat" label="Cài đặt quán" />
       </nav>
 
       <div className="mt-auto p-3">

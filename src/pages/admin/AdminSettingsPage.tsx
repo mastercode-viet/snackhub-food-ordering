@@ -1,0 +1,234 @@
+import { useEffect, useState } from "react";
+import { ChevronRight, Power } from "lucide-react";
+import { useAsync } from "@/hooks/useAsync";
+import { formatVnd } from "@/lib/format";
+import { toast } from "@/store/toast";
+import ErrorState from "@/components/ui/ErrorState";
+import { Skeleton } from "@/components/Skeleton";
+import { fetchSettings, updateSettings, type StoreSettings } from "@/lib/adminQueries";
+
+/** "06:00:00" -> "06:00" cho <input type="time">. */
+function toTimeInput(t: string): string {
+  return t.slice(0, 5);
+}
+
+export default function AdminSettingsPage() {
+  const state = useAsync(fetchSettings, []);
+
+  return (
+    <div className="flex flex-col gap-space-lg">
+      <nav className="flex items-center gap-1 text-label-sm text-on-surface-variant">
+        Quản lý
+        <ChevronRight size={14} strokeWidth={2.2} />
+        <span className="text-on-surface">Cài đặt quán</span>
+      </nav>
+
+      {state.loading ? (
+        <Skeleton className="h-64 w-full rounded-card" />
+      ) : state.error ? (
+        <ErrorState onRetry={state.reload} />
+      ) : (
+        <SettingsForm settings={state.data!} onSaved={state.reload} />
+      )}
+    </div>
+  );
+}
+
+function SettingsForm({
+  settings,
+  onSaved,
+}: {
+  settings: StoreSettings;
+  onSaved: () => void;
+}) {
+  const [storeName, setStoreName] = useState(settings.store_name);
+  const [openTime, setOpenTime] = useState(toTimeInput(settings.open_time));
+  const [closeTime, setCloseTime] = useState(toTimeInput(settings.close_time));
+  const [shippingFee, setShippingFee] = useState(String(settings.shipping_fee));
+  const [minOrder, setMinOrder] = useState(String(settings.min_order_amount));
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setStoreName(settings.store_name);
+    setOpenTime(toTimeInput(settings.open_time));
+    setCloseTime(toTimeInput(settings.close_time));
+    setShippingFee(String(settings.shipping_fee));
+    setMinOrder(String(settings.min_order_amount));
+  }, [settings]);
+
+  async function run(patch: Parameters<typeof updateSettings>[0], okMessage: string) {
+    setBusy(true);
+    try {
+      await updateSettings(patch);
+      toast.success(okMessage);
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không lưu được, thử lại nhé.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function save() {
+    const name = storeName.trim();
+    if (!name) {
+      toast.error("Tên quán không được để trống.");
+      return;
+    }
+
+    void run(
+      {
+        store_name: name,
+        open_time: `${openTime}:00`,
+        close_time: `${closeTime}:00`,
+        shipping_fee: Number(shippingFee) || 0,
+        min_order_amount: Number(minOrder) || 0,
+      },
+      "Đã lưu cài đặt.",
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-gutter-mobile xl:flex-row xl:gap-gutter">
+      <section className="flex min-w-0 flex-1 flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
+        <div>
+          <h1 className="text-headline-sm text-on-surface">Cài đặt quán</h1>
+          <p className="mt-1 text-body-sm text-on-surface-variant">
+            Khung giờ ở đây là thứ chặn đặt hàng thật — cả giao diện khách lẫn Edge Function
+            đều kiểm tra bằng cùng một hàm.
+          </p>
+        </div>
+
+        <Field label="Tên quán">
+          <input value={storeName} onChange={(e) => setStoreName(e.target.value)} className={inputClass} />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Bắt đầu nhận đơn">
+            <input
+              type="time"
+              value={openTime}
+              onChange={(e) => setOpenTime(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Ngừng nhận đơn">
+            <input
+              type="time"
+              value={closeTime}
+              onChange={(e) => setCloseTime(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Phí giao (đ)" hint="Để 0 là miễn phí">
+            <input
+              inputMode="numeric"
+              value={shippingFee}
+              onChange={(e) => setShippingFee(e.target.value.replace(/\D/g, ""))}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Đơn tối thiểu (đ)">
+            <input
+              inputMode="numeric"
+              value={minOrder}
+              onChange={(e) => setMinOrder(e.target.value.replace(/\D/g, ""))}
+              className={inputClass}
+            />
+          </Field>
+        </div>
+
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy}
+          className="min-h-[44px] rounded-card bg-inverse-surface px-4 text-label-lg text-inverse-on-surface disabled:opacity-50"
+        >
+          Lưu cài đặt
+        </button>
+      </section>
+
+      <aside className="w-full shrink-0 xl:w-[360px]">
+        <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
+          <div className="flex items-center gap-2">
+            <Power size={18} strokeWidth={2.2} className="text-on-surface-variant" />
+            <h2 className="text-label-lg text-on-surface">Nhận đơn</h2>
+          </div>
+
+          <p className="text-body-sm text-on-surface-variant">
+            Tắt là ngừng nhận đơn ngay lập tức, kể cả đang trong khung giờ bán. Dùng khi hết
+            nguyên liệu hoặc nghỉ đột xuất. Khách vẫn xem được menu.
+          </p>
+
+          <div
+            className={`rounded-card px-4 py-3 text-label-md ${
+              settings.is_open
+                ? "bg-secondary-container text-on-secondary-container"
+                : "bg-error-container text-on-error-container"
+            }`}
+          >
+            {settings.is_open
+              ? `Đang mở — nhận đơn ${toTimeInput(settings.open_time)}–${toTimeInput(settings.close_time)}`
+              : "Đang tạm nghỉ — khách không đặt được"}
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (settings.is_open && !confirm("Ngừng nhận đơn ngay bây giờ?")) return;
+              void run(
+                { is_open: !settings.is_open },
+                settings.is_open ? "Đã ngừng nhận đơn." : "Đã mở nhận đơn lại.",
+              );
+            }}
+            className={`min-h-[44px] rounded-card px-4 text-label-lg transition-opacity hover:opacity-90 disabled:opacity-50 ${
+              settings.is_open
+                ? "border border-outline-variant text-error"
+                : "bg-inverse-surface text-inverse-on-surface"
+            }`}
+          >
+            {settings.is_open ? "Ngừng nhận đơn" : "Mở nhận đơn lại"}
+          </button>
+
+          <div className="border-t border-outline-variant pt-space-md text-body-sm text-on-surface-variant">
+            <p>
+              Phí giao hiện tại:{" "}
+              <span className="text-on-surface">
+                {Number(settings.shipping_fee) === 0 ? "Miễn phí" : formatVnd(settings.shipping_fee)}
+              </span>
+            </p>
+            <p className="mt-0.5">
+              Đơn tối thiểu:{" "}
+              <span className="text-on-surface">{formatVnd(settings.min_order_amount)}</span>
+            </p>
+          </div>
+        </section>
+      </aside>
+    </div>
+  );
+}
+
+const inputClass =
+  "min-h-[44px] w-full rounded-card border border-outline-variant bg-surface-container-lowest px-3 text-body-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container";
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-label-sm text-on-surface-variant">{label}</span>
+      {children}
+      {hint && <span className="text-label-xs text-on-surface-variant">{hint}</span>}
+    </label>
+  );
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { closedMessage } from "@/components/home/StoreStatus";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, MapPin, NotebookPen, Receipt, Ticket, User } from "lucide-react";
 import Field from "@/components/checkout/Field";
@@ -302,7 +303,7 @@ export default function CheckoutPage() {
           <div className="mx-auto max-w-md md:max-w-none">
             {(apiError || closed) && (
               <p className="mb-2 rounded-2xl bg-error-container px-4 py-2.5 text-center text-label-sm text-on-error-container shadow-card">
-                {apiError ?? "Ngoài giờ nhận đơn (6:00–18:00). Bạn quay lại sau nhé!"}
+                {apiError ?? closedMessage(settings.data)}
               </p>
             )}
 

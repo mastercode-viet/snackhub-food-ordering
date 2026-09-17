@@ -405,3 +405,27 @@ export async function uploadProductImage(file: File): Promise<string> {
 
   return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl;
 }
+
+// ── Cài đặt quán ─────────────────────────────────────────────────────────
+//
+// Bảng chỉ có đúng 1 dòng id=1, không bao giờ thêm/xoá — nên chỉ cấp UPDATE.
+
+export type StoreSettings = Tables<"store_settings">;
+
+export async function fetchSettings(): Promise<StoreSettings> {
+  const { data, error } = await supabase.from("store_settings").select("*").eq("id", 1).single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateSettings(
+  patch: Partial<
+    Pick<
+      StoreSettings,
+      "store_name" | "open_time" | "close_time" | "is_open" | "shipping_fee" | "min_order_amount"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("store_settings").update(patch).eq("id", 1);
+  if (error) throw error;
+}
