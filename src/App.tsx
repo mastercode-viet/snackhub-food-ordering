@@ -14,6 +14,7 @@ import NotFoundPage from "@/pages/NotFoundPage";
 // Khu vực Admin tách khỏi bundle khách: khách không bao giờ tải màn quản trị.
 const AdminLayout = lazy(() => import("@/routes/AdminLayout"));
 const AdminToppingsPage = lazy(() => import("@/pages/admin/AdminToppingsPage"));
+const AdminOrdersPage = lazy(() => import("@/pages/admin/AdminOrdersPage"));
 
 const router = createBrowserRouter([
   {
@@ -44,7 +45,8 @@ const router = createBrowserRouter([
           </Suspense>
         ),
         children: [
-          { index: true, element: <AdminToppingsPage /> },
+          { index: true, element: <AdminOrdersPage /> },
+          { path: "don-hang", element: <AdminOrdersPage /> },
           { path: "toppings", element: <AdminToppingsPage /> },
         ],
       },

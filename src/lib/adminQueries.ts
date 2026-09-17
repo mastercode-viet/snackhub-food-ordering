@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import type { OrderItemView } from "@/lib/queries";
 import type { Tables } from "@/types/database";
 
 /**
@@ -110,5 +111,79 @@ export async function setGroupProducts(groupId: string, productIds: string[]): P
   const { error } = await supabase
     .from("product_topping_groups")
     .insert(productIds.map((product_id) => ({ product_id, topping_group_id: groupId })));
+  if (error) throw error;
+}
+
+// ── Đơn hàng ─────────────────────────────────────────────────────────────
+//
+// Admin đọc thẳng bảng `orders` (policy orders_admin_all), không qua RPC
+// get_order_by_code như khách — khách không có quyền SELECT nên mới phải đi
+// đường hàm security definer đó.
+
+export type OrderStatus = Tables<"orders">["status"];
+
+export type AdminOrder = Pick<
+  Tables<"orders">,
+  | "id"
+  | "order_code"
+  | "status"
+  | "payment_method"
+  | "payment_status"
+  | "customer_name"
+  | "customer_phone"
+  | "building"
+  | "floor"
+  | "room"
+  | "class_name"
+  | "delivery_note"
+  | "subtotal"
+  | "discount_amount"
+  | "discount_code"
+  | "shipping_fee"
+  | "total_amount"
+  | "cancel_reason"
+  | "cancelled_at"
+  | "completed_at"
+  | "created_at"
+> & { order_items: OrderItemView[] };
+
+const ORDER_COLUMNS =
+  "id, order_code, status, payment_method, payment_status, customer_name, customer_phone, " +
+  "building, floor, room, class_name, delivery_note, subtotal, discount_amount, discount_code, " +
+  "shipping_fee, total_amount, cancel_reason, cancelled_at, completed_at, created_at, " +
+  "order_items(id, product_id, product_name, product_image_url, options, combo_id, " +
+  "combo_items_snapshot, unit_price, quantity, line_total, item_note)";
+
+export async function fetchAdminOrders(limit = 100): Promise<AdminOrder[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data as unknown as AdminOrder[];
+}
+
+/**
+ * Chỉ set `status`. Trigger orders_stamp_status tự đóng dấu completed_at /
+ * cancelled_at — đóng dấu ở client là kiểu gì cũng có ngày lệch giờ máy.
+ */
+export async function setOrderStatus(id: string, status: OrderStatus): Promise<void> {
+  const { error } = await supabase.from("orders").update({ status }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function cancelOrderAsAdmin(id: string, reason: string): Promise<void> {
+  const { error } = await supabase
+    .from("orders")
+    .update({ status: "cancelled", cancel_reason: reason, cancelled_by: "admin" })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/** Ghi nhận đã thu tiền (chủ yếu cho COD). paid_at do trigger đóng dấu. */
+export async function markOrderPaid(id: string): Promise<void> {
+  const { error } = await supabase.from("orders").update({ payment_status: "paid" }).eq("id", id);
   if (error) throw error;
 }

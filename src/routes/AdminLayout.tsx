@@ -60,6 +60,7 @@ function Sidebar() {
         <p className="px-2 pb-1 pt-3 text-label-xs uppercase tracking-wide text-on-surface-variant">
           Quản lý
         </p>
+        <SidebarLink to="/admin/don-hang" label="Đơn hàng" />
         <SidebarLink to="/admin/toppings" label="Nhóm topping" />
       </nav>
 
