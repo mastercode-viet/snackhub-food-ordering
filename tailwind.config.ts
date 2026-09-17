@@ -204,10 +204,12 @@ export default {
         card: "0 4px 20px -4px rgba(39, 51, 42, 0.08), 0 1px 3px rgba(39, 51, 42, 0.04)",
         "card-hover": "0 14px 32px -6px rgba(39, 51, 42, 0.14), 0 2px 8px rgba(39, 51, 42, 0.06)",
         cta: "0 4px 14px -2px rgba(39, 51, 42, 0.25)",
-        "cta-glow": "0 8px 24px -4px rgba(209, 70, 26, 0.35)",
+        // Bóng đậm hơn cho CTA cuối phễu (nút "Đặt hàng ngay") — trước đây
+        // CheckoutPage.tsx tham chiếu token này mà chưa từng được khai, nên
+        // nút quan trọng nhất app không có bóng nào cả.
+        "cta-lg": "0 10px 28px -6px rgba(39, 51, 42, 0.3)",
         sheet: "0 -8px 30px rgba(39, 51, 42, 0.1), 0 -1px 0 #dde4db",
         badge: "0 3px 10px -2px rgba(209, 70, 26, 0.35)",
-        glass: "0 8px 32px 0 rgba(39, 51, 42, 0.07)",
         lift: "0 6px 20px -2px rgba(19, 30, 22, 0.12)",
       },
     },
