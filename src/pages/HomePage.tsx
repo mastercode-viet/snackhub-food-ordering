@@ -142,7 +142,9 @@ export default function HomePage() {
 
       {storeOpen.data === false && <StoreClosedBanner settings={settings.data} />}
 
-      <section className="mt-4 flex flex-col gap-space-sm px-margin-mobile md:px-gutter">
+      <ComboRail />
+
+      <section className="mt-6 flex flex-col gap-space-sm px-margin-mobile md:px-gutter">
         {/* Tiêu đề mục kiểu editorial: chữ to siết tracking, đường kẻ mảnh phía
             dưới thay cho thanh màu. Link phụ dùng mực, không dùng màu. */}
         <div className="flex items-end justify-between gap-3 border-b border-outline-variant pb-2">
@@ -170,8 +172,6 @@ export default function HomePage() {
           }
         />
       </section>
-
-      <ComboRail />
 
       <ProductRail
         title={
