@@ -108,3 +108,32 @@ export function CategoryRowSkeleton({ count = 5 }: { count?: number }) {
     </div>
   );
 }
+
+/**
+ * Khung chờ cho dải combo cuộn ngang.
+ * Soi chiếu `components/home/ComboRail.tsx`: thẻ rộng w-72 gap-3.5 p-2, ảnh
+ * size-20 rounded-card-sm, 1 dòng tên, 1 hàng chip tóm tắt món con, hàng
+ * giá + nút tròn size-9 rounded-full.
+ */
+export function ComboRailSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <div className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1 pb-1">
+      {Array.from({ length: count }, (_, i) => (
+        <div key={i} className="flex w-72 shrink-0 items-start gap-3.5 p-2">
+          <Skeleton className="size-20 shrink-0 rounded-card-sm" />
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Skeleton className="h-4 w-4/5" />
+            <div className="flex gap-1">
+              <Skeleton className="h-4 w-14 rounded-full" />
+              <Skeleton className="h-4 w-16 rounded-full" />
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <Skeleton className="h-5 w-16" />
+              <Skeleton className="size-9 shrink-0 rounded-full" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}

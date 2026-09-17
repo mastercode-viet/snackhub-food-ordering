@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { ChevronRight, MapPin, User } from "lucide-react";
 import SearchBar from "@/components/home/SearchBar";
 import CategoryPills from "@/components/home/CategoryPills";
+import ComboBanner from "@/components/home/ComboBanner";
+import ComboRail from "@/components/home/ComboRail";
 import CountdownTimer from "@/components/home/CountdownTimer";
 import ProductRail from "@/components/home/ProductRail";
 import { StoreClosedBanner, StoreHoursBadge, StoreStatusLine } from "@/components/home/StoreStatus";
@@ -72,6 +74,10 @@ export default function HomePage() {
 
   return (
     <div className="pt-safe">
+      {/* Banner combo nổi bật — vị trí TRÊN CÙNG trang chủ theo đúng yêu cầu.
+          Tự ẩn nếu chưa có combo nào bật is_featured. */}
+      <ComboBanner />
+
       {/* Đã bỏ hai khối mờ trang trí: chúng phủ sắc hồng/vàng lên nền giấy và
           là thứ điển hình tạo cảm giác "app đồ ăn AI". Editorial dựa vào khoảng
           trắng và phân cấp chữ, không dựa vào hiệu ứng nền. */}
@@ -164,6 +170,8 @@ export default function HomePage() {
           }
         />
       </section>
+
+      <ComboRail />
 
       <ProductRail
         title={

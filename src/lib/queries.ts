@@ -304,16 +304,16 @@ export async function fetchOptionsByIds(ids: string[]): Promise<Tables<"product_
 /** Số combo tối đa hiển thị ở section "Ăn thả ga không lo về giá". */
 const COMBO_LIST_LIMIT = 20;
 
-/** Combo kèm danh sách tên món con — đủ để card hiển thị tóm tắt "Xôi · Trà sữa". */
+/** Combo kèm danh sách món con — đủ để card hiển thị tóm tắt "Xôi · Trà sữa". */
 export type ComboWithItems = Tables<"combos"> & {
-  combo_items: Array<{ quantity: number; products: { name: string } | null }>;
+  combo_items: Array<{ quantity: number; products: { id: string; name: string } | null }>;
 };
 
 /** Combo đang bật `is_featured` — dùng cho banner đầu trang chủ. */
 export async function fetchFeaturedCombos(): Promise<ComboWithItems[]> {
   const { data, error } = await supabase
     .from("combos")
-    .select("*, combo_items(quantity, products(name))")
+    .select("*, combo_items(quantity, products(id, name))")
     .eq("is_available", true)
     .eq("is_featured", true)
     .order("sort_order");
@@ -326,7 +326,7 @@ export async function fetchFeaturedCombos(): Promise<ComboWithItems[]> {
 export async function fetchCombos(): Promise<ComboWithItems[]> {
   const { data, error } = await supabase
     .from("combos")
-    .select("*, combo_items(quantity, products(name))")
+    .select("*, combo_items(quantity, products(id, name))")
     .eq("is_available", true)
     .order("sort_order")
     .limit(COMBO_LIST_LIMIT);

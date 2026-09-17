@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { newId } from "@/lib/id";
+import type { ComboWithItems } from "@/lib/queries";
 
 /**
  * Giỏ hàng nằm hoàn toàn ở phía client (Zustand + middleware `persist`).
@@ -81,6 +82,29 @@ function identityOf(item: NewCartItem): string {
   if (item.kind === "combo") return `combo:${item.comboId}|${note}`;
   const ids = item.options.map((o) => o.optionId).sort().join(",");
   return `product:${item.productId}|${ids}|${note}`;
+}
+
+/**
+ * Dựng dòng giỏ hàng combo từ dữ liệu hiển thị (ComboBanner/ComboCard).
+ * Combo không có option nên không cần bước "chọn" như ProductDetailPage —
+ * bấm "Thêm vào giỏ" là gọi thẳng hàm này rồi addItem().
+ */
+export function comboToCartItem(combo: ComboWithItems, quantity = 1): Omit<ComboCartItem, "lineId"> {
+  return {
+    kind: "combo",
+    comboId: combo.id,
+    slug: combo.slug,
+    name: combo.name,
+    imageUrl: combo.image_url,
+    unitPrice: Number(combo.price),
+    items: combo.combo_items.map((i) => ({
+      productId: i.products?.id ?? "",
+      name: i.products?.name ?? "",
+      quantity: i.quantity,
+    })),
+    quantity,
+    note: null,
+  };
 }
 
 type CartState = {
