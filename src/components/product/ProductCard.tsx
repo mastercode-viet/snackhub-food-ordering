@@ -66,7 +66,7 @@ export default function ProductCard({ product }: { product: ProductWithCategory 
               whileHover={{ scale: 1.1, rotate: 90 }}
               whileTap={{ scale: 0.9 }}
               aria-hidden="true"
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-inverse-surface text-inverse-on-surface shadow-cta transition-shadow group-hover:shadow-card-hover"
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow group-hover:shadow-card-hover"
             >
               <Plus size={18} strokeWidth={2.8} />
             </motion.span>

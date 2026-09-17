@@ -305,7 +305,7 @@ export default function CheckoutPage() {
               type="button"
               onClick={submit}
               disabled={submitting || closed}
-              className="flex h-14 w-full items-center justify-between rounded-full bg-inverse-surface px-5 text-inverse-on-surface shadow-cta-lg transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none disabled:active:scale-100"
+              className="flex h-14 w-full items-center justify-between rounded-full bg-primary px-5 text-on-primary shadow-cta-lg transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none disabled:active:scale-100"
             >
               <span className="text-label-lg font-bold">
                 {submitting ? "Đang gửi đơn…" : "Đặt hàng ngay"}
