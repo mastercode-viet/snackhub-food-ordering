@@ -287,3 +287,121 @@ export async function fetchTopProducts(days = 14, limit = 8): Promise<TopProduct
 
   return [...byName.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
 }
+
+// ── Danh mục ─────────────────────────────────────────────────────────────
+
+export type AdminCategory = Tables<"categories">;
+
+export async function fetchAdminCategories(): Promise<AdminCategory[]> {
+  const { data, error } = await supabase
+    .from("categories")
+    .select("*")
+    .order("sort_order")
+    .order("name");
+  if (error) throw error;
+  return data;
+}
+
+export async function createCategory(input: {
+  name: string;
+  slug: string;
+  icon: string | null;
+  sort_order: number;
+}): Promise<void> {
+  const { error } = await supabase.from("categories").insert(input);
+  if (error) throw error;
+}
+
+export async function updateCategory(
+  id: string,
+  patch: Partial<Pick<Tables<"categories">, "name" | "slug" | "icon" | "sort_order" | "is_active">>,
+): Promise<void> {
+  const { error } = await supabase.from("categories").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  const { error } = await supabase.from("categories").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ── Sản phẩm ─────────────────────────────────────────────────────────────
+//
+// KHÔNG bao giờ ghi vào products.search_text: đó là cột GENERATED ALWAYS,
+// Postgres tự sinh từ name + description (đã lowercase + bỏ dấu). Ghi vào
+// là Postgres báo lỗi ngay.
+
+export type AdminProductRow = Tables<"products"> & {
+  categories: { name: string } | null;
+};
+
+export type ProductFormValues = {
+  name: string;
+  slug: string;
+  description: string | null;
+  category_id: string | null;
+  base_price: number;
+  discount_percent: number;
+  image_url: string | null;
+  is_available: boolean;
+  is_featured: boolean;
+  sort_order: number;
+};
+
+export async function fetchAdminProductRows(): Promise<AdminProductRow[]> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*, categories(name)")
+    .order("sort_order")
+    .order("name");
+  if (error) throw error;
+  return data as AdminProductRow[];
+}
+
+export async function createProduct(values: ProductFormValues): Promise<void> {
+  const { error } = await supabase.from("products").insert(values);
+  if (error) throw error;
+}
+
+export async function updateProduct(id: string, patch: Partial<ProductFormValues>): Promise<void> {
+  const { error } = await supabase.from("products").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+  const { error } = await supabase.from("products").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Bật/tắt "hết hàng tạm thời" — thao tác dùng nhiều nhất trong ngày. */
+export async function setProductAvailability(id: string, isAvailable: boolean): Promise<void> {
+  const { error } = await supabase.from("products").update({ is_available: isAvailable }).eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * Bucket product-images đã có sẵn: public read, ghi/xoá chỉ is_admin(),
+ * tối đa 3MB, chỉ nhận webp/jpeg/png/avif. Chặn sớm ở client để khách khỏi
+ * chờ upload xong mới nhận lỗi từ Storage.
+ */
+const IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+const IMAGE_TYPES = ["image/webp", "image/jpeg", "image/png", "image/avif"];
+
+export async function uploadProductImage(file: File): Promise<string> {
+  if (!IMAGE_TYPES.includes(file.type)) {
+    throw new Error("Ảnh phải là WEBP, JPEG, PNG hoặc AVIF.");
+  }
+  if (file.size > IMAGE_MAX_BYTES) {
+    throw new Error("Ảnh tối đa 3MB. Nén bớt rồi tải lại nhé.");
+  }
+
+  const ext = file.type.split("/")[1].replace("jpeg", "jpg");
+  const path = `${crypto.randomUUID()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("product-images")
+    .upload(path, file, { cacheControl: "31536000", upsert: false });
+  if (error) throw error;
+
+  return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+}

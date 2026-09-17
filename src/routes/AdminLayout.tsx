@@ -61,6 +61,7 @@ function Sidebar() {
           Quản lý
         </p>
         <SidebarLink to="/admin/don-hang" label="Đơn hàng" />
+        <SidebarLink to="/admin/thuc-don" label="Thực đơn" />
         <SidebarLink to="/admin/thong-ke" label="Thống kê" />
         <SidebarLink to="/admin/toppings" label="Nhóm topping" />
       </nav>

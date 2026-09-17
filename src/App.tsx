@@ -16,6 +16,7 @@ const AdminLayout = lazy(() => import("@/routes/AdminLayout"));
 const AdminToppingsPage = lazy(() => import("@/pages/admin/AdminToppingsPage"));
 const AdminOrdersPage = lazy(() => import("@/pages/admin/AdminOrdersPage"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/AdminDashboardPage"));
+const AdminCatalogPage = lazy(() => import("@/pages/admin/AdminCatalogPage"));
 
 const router = createBrowserRouter([
   {
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
           { index: true, element: <AdminOrdersPage /> },
           { path: "don-hang", element: <AdminOrdersPage /> },
           { path: "thong-ke", element: <AdminDashboardPage /> },
+          { path: "thuc-don", element: <AdminCatalogPage /> },
           { path: "toppings", element: <AdminToppingsPage /> },
         ],
       },
