@@ -187,3 +187,103 @@ export async function markOrderPaid(id: string): Promise<void> {
   const { error } = await supabase.from("orders").update({ payment_status: "paid" }).eq("id", id);
   if (error) throw error;
 }
+
+// ── Thống kê ─────────────────────────────────────────────────────────────
+//
+// Hai view admin_daily_stats / admin_top_products khai security_invoker=true
+// nên chạy theo quyền người gọi: RLS của orders vẫn áp, ai không phải admin
+// đọc ra rỗng chứ không thấy doanh thu.
+
+export type DailyStat = {
+  day: string;
+  total_orders: number;
+  completed_orders: number;
+  cancelled_orders: number;
+  revenue: number;
+  total_discount: number;
+  avg_order_value: number;
+};
+
+export type TopProduct = { product_name: string; quantity: number; revenue: number };
+
+function isoDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function daysAgoISO(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return isoDay(d);
+}
+
+const EMPTY_DAY = {
+  total_orders: 0,
+  completed_orders: 0,
+  cancelled_orders: 0,
+  revenue: 0,
+  total_discount: 0,
+  avg_order_value: 0,
+};
+
+/**
+ * View chỉ có dòng cho ngày CÓ đơn. Nếu đổ thẳng ra biểu đồ thì ngày không
+ * đơn biến mất và trục ngày thành ra sai — các cột cách đều nhau như thể
+ * ngày nào cũng liền ngày nào. Nên dựng đủ dải ngày rồi điền 0 vào chỗ trống.
+ */
+export async function fetchDailyStats(days = 14): Promise<DailyStat[]> {
+  const from = daysAgoISO(days - 1);
+
+  const { data, error } = await supabase
+    .from("admin_daily_stats")
+    .select("*")
+    .gte("day", from)
+    .order("day");
+
+  if (error) throw error;
+
+  const byDay = new Map<string, DailyStat>();
+  for (const r of data ?? []) {
+    byDay.set(r.day as string, {
+      day: r.day as string,
+      total_orders: Number(r.total_orders),
+      completed_orders: Number(r.completed_orders),
+      cancelled_orders: Number(r.cancelled_orders),
+      revenue: Number(r.revenue),
+      total_discount: Number(r.total_discount),
+      avg_order_value: Number(r.avg_order_value),
+    });
+  }
+
+  const spine: DailyStat[] = [];
+  const cursor = new Date();
+  cursor.setDate(cursor.getDate() - (days - 1));
+
+  for (let i = 0; i < days; i++) {
+    const key = isoDay(cursor);
+    spine.push(byDay.get(key) ?? { day: key, ...EMPTY_DAY });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return spine;
+}
+
+/** View trả theo từng ngày; gộp lại theo món để ra bảng bán chạy. */
+export async function fetchTopProducts(days = 14, limit = 8): Promise<TopProduct[]> {
+  const { data, error } = await supabase
+    .from("admin_top_products")
+    .select("product_name, total_quantity, total_revenue")
+    .gte("day", daysAgoISO(days));
+
+  if (error) throw error;
+
+  const byName = new Map<string, TopProduct>();
+  for (const row of data ?? []) {
+    const name = row.product_name as string;
+    const cur = byName.get(name) ?? { product_name: name, quantity: 0, revenue: 0 };
+    cur.quantity += Number(row.total_quantity);
+    cur.revenue += Number(row.total_revenue);
+    byName.set(name, cur);
+  }
+
+  return [...byName.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
+}

@@ -15,6 +15,7 @@ import NotFoundPage from "@/pages/NotFoundPage";
 const AdminLayout = lazy(() => import("@/routes/AdminLayout"));
 const AdminToppingsPage = lazy(() => import("@/pages/admin/AdminToppingsPage"));
 const AdminOrdersPage = lazy(() => import("@/pages/admin/AdminOrdersPage"));
+const AdminDashboardPage = lazy(() => import("@/pages/admin/AdminDashboardPage"));
 
 const router = createBrowserRouter([
   {
@@ -47,6 +48,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <AdminOrdersPage /> },
           { path: "don-hang", element: <AdminOrdersPage /> },
+          { path: "thong-ke", element: <AdminDashboardPage /> },
           { path: "toppings", element: <AdminToppingsPage /> },
         ],
       },
