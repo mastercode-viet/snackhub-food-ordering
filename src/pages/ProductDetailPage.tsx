@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, NotebookPen, ShoppingBag } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
-import OptionGroup from "@/components/product/OptionGroup";
+import OptionGroup, { type OptionGroupData } from "@/components/product/OptionGroup";
 import QuantityStepper from "@/components/product/QuantityStepper";
 import { Skeleton } from "@/components/Skeleton";
 import EmptyState from "@/components/ui/EmptyState";
@@ -26,24 +26,60 @@ export default function ProductDetailPage() {
   const [note, setNote] = useState("");
   const [touched, setTouched] = useState(false);
 
+  /**
+   * Nhóm topping dùng chung được nắn về đúng hình dạng của nhóm option lẻ rồi
+   * ghép chung một danh sách. Nhờ vậy toàn bộ phần chọn / tính giá / thêm vào
+   * giỏ bên dưới không phải biết hai loại — với cart và Edge Function thì
+   * topping cũng chỉ là một option id.
+   *
+   * Topping luôn tuỳ chọn: is_required = false, min_select = 0.
+   */
+  const groups: OptionGroupData[] = useMemo(() => {
+    if (!product) return [];
+
+    const toppings: OptionGroupData[] = product.toppingGroups
+      .filter((g) => g.topping_items.length > 0)
+      .map((g) => ({
+        id: g.id,
+        product_id: product.id,
+        name: g.name,
+        is_required: false,
+        min_select: 0,
+        max_select: g.topping_items.length,
+        sort_order: g.sort_order,
+        created_at: g.created_at,
+        product_options: g.topping_items.map((t) => ({
+          id: t.id,
+          group_id: g.id,
+          name: t.name,
+          price_delta: t.price_delta,
+          is_available: t.is_available,
+          sort_order: t.sort_order,
+          created_at: t.created_at,
+        })),
+      }));
+
+    return [...product.product_option_groups, ...toppings];
+  }, [product]);
+
   const initialised = useMemo(() => {
     if (!product) return null;
     const initial: Record<string, string[]> = {};
-    for (const group of product.product_option_groups) {
+    for (const group of groups) {
       if (group.is_required && group.max_select === 1) {
         const first = group.product_options.find((o) => o.is_available);
         if (first) initial[group.id] = [first.id];
       }
     }
     return initial;
-  }, [product]);
+  }, [groups, product]);
 
   const effective: Record<string, string[]> = { ...(initialised ?? {}), ...selections };
 
   const chosen: CartOption[] = useMemo(() => {
     if (!product) return [];
     const result: CartOption[] = [];
-    for (const group of product.product_option_groups) {
+    for (const group of groups) {
       for (const id of effective[group.id] ?? []) {
         const opt = group.product_options.find((o) => o.id === id);
         if (opt) {
@@ -59,7 +95,7 @@ export default function ProductDetailPage() {
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product, JSON.stringify(effective)]);
+  }, [product, groups, JSON.stringify(effective)]);
 
   function goBack() {
     if (location.key !== "default") navigate(-1);
@@ -94,7 +130,7 @@ export default function ProductDetailPage() {
   const total = unitPrice * quantity;
   const savings = product.base_price - unitBase;
 
-  const missingGroups = product.product_option_groups.filter(
+  const missingGroups = groups.filter(
     (g) => g.is_required && (effective[g.id]?.length ?? 0) < Math.max(1, g.min_select),
   );
   const canAdd = product.is_available && missingGroups.length === 0;
@@ -202,7 +238,7 @@ export default function ProductDetailPage() {
             )}
           </section>
 
-          {product.product_option_groups.map((group) => (
+          {groups.map((group) => (
             <OptionGroup
               key={group.id}
               group={group}
