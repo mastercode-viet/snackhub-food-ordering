@@ -51,6 +51,87 @@ export type Database = {
         };
         Relationships: [];
       };
+      combo_items: {
+        Row: {
+          combo_id: string;
+          id: string;
+          product_id: string;
+          quantity: number;
+          sort_order: number;
+        };
+        Insert: {
+          combo_id: string;
+          id?: string;
+          product_id: string;
+          quantity?: number;
+          sort_order?: number;
+        };
+        Update: {
+          combo_id?: string;
+          id?: string;
+          product_id?: string;
+          quantity?: number;
+          sort_order?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "combo_items_combo_id_fkey";
+            columns: ["combo_id"];
+            isOneToOne: false;
+            referencedRelation: "combos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "combo_items_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      combos: {
+        Row: {
+          created_at: string;
+          description: string | null;
+          id: string;
+          image_url: string | null;
+          is_available: boolean;
+          is_featured: boolean;
+          name: string;
+          price: number;
+          slug: string;
+          sort_order: number;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          image_url?: string | null;
+          is_available?: boolean;
+          is_featured?: boolean;
+          name: string;
+          price: number;
+          slug: string;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          image_url?: string | null;
+          is_available?: boolean;
+          is_featured?: boolean;
+          name?: string;
+          price?: number;
+          slug?: string;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       discount_codes: {
         Row: {
           code: string;
@@ -105,6 +186,8 @@ export type Database = {
       order_items: {
         Row: {
           base_price: number;
+          combo_id: string | null;
+          combo_items_snapshot: Json;
           created_at: string;
           id: string;
           item_note: string | null;
@@ -120,6 +203,8 @@ export type Database = {
         };
         Insert: {
           base_price: number;
+          combo_id?: string | null;
+          combo_items_snapshot?: Json;
           created_at?: string;
           id?: string;
           item_note?: string | null;
@@ -135,6 +220,8 @@ export type Database = {
         };
         Update: {
           base_price?: number;
+          combo_id?: string | null;
+          combo_items_snapshot?: Json;
           created_at?: string;
           id?: string;
           item_note?: string | null;
@@ -148,7 +235,17 @@ export type Database = {
           quantity?: number;
           unit_price?: number;
         };
+        // combo_id CHỈ phục vụ join/báo cáo, KHÔNG dùng để hiển thị — hiển thị
+        // dựa vào product_name/product_image_url/base_price (đã snapshot) và
+        // combo_items_snapshot. Xem comment cột tương ứng trong migration.
         Relationships: [
+          {
+            foreignKeyName: "order_items_combo_id_fkey";
+            columns: ["combo_id"];
+            isOneToOne: false;
+            referencedRelation: "combos";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "order_items_order_id_fkey";
             columns: ["order_id"];

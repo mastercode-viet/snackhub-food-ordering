@@ -20,20 +20,27 @@ export type LineCheck = { issue: LineIssue | null; blocking: boolean };
  * để họ không bị đổi đơn sau lưng.
  */
 export function useCartSync(items: CartItem[]) {
+  const productItems = items.filter((i) => i.kind === "product");
+  const comboItems = items.filter((i) => i.kind === "combo");
+
   const productIds = useMemo(
-    () => [...new Set(items.map((i) => i.productId))].sort(),
-    [items],
+    () => [...new Set(productItems.map((i) => i.productId))].sort(),
+    [productItems],
   );
   const optionIds = useMemo(
-    () => [...new Set(items.flatMap((i) => i.options.map((o) => o.optionId)))].sort(),
-    [items],
+    () => [...new Set(productItems.flatMap((i) => i.options.map((o) => o.optionId)))].sort(),
+    [productItems],
+  );
+  const comboIds = useMemo(
+    () => [...new Set(comboItems.map((i) => i.comboId))].sort(),
+    [comboItems],
   );
 
-  const key = `${productIds.join(",")}|${optionIds.join(",")}`;
+  const key = `${productIds.join(",")}|${optionIds.join(",")}|${comboIds.join(",")}`;
 
   const fn = useMemo(
-    () => () => fetchCartSync(productIds, optionIds),
-    // key gói cả hai mảng thành chuỗi để không tạo hàm mới mỗi lần render
+    () => () => fetchCartSync(productIds, optionIds, comboIds),
+    // key gói cả ba mảng thành chuỗi để không tạo hàm mới mỗi lần render
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [key],
   );
@@ -56,6 +63,16 @@ export function useCartSync(items: CartItem[]) {
 }
 
 function checkLine(item: CartItem, snapshot: CartSyncSnapshot): LineCheck {
+  // Combo: chỉ kiểm còn bán được không. Không theo dõi đổi giá combo — hiếm
+  // khi xảy ra, và đằng nào create-order cũng luôn tính theo giá combo mới
+  // nhất (giống hệt cách sản phẩm lẻ đổi giá không chặn đặt hàng).
+  if (item.kind === "combo") {
+    const combo = snapshot.combos[item.comboId];
+    if (!combo) return { issue: { kind: "removed" }, blocking: true };
+    if (!combo.is_available) return { issue: { kind: "sold_out" }, blocking: true };
+    return { issue: null, blocking: false };
+  }
+
   const product = snapshot.products[item.productId];
 
   if (!product) return { issue: { kind: "removed" }, blocking: true };

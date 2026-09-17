@@ -104,6 +104,7 @@ export default function ProductDetailPage() {
     if (!canAdd || !product) return;
 
     addItem({
+      kind: "product",
       productId: product.id,
       slug: product.slug,
       name: product.name,

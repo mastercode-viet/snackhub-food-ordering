@@ -20,13 +20,17 @@ import type { CartItem } from "@/store/cart";
  * có nhóm tùy chọn bắt buộc (Size, Độ cay) phải chọn trước.
  */
 export default function SuggestionRow({ items }: { items: CartItem[] }) {
+  // Combo không có category/productId riêng (không phải là một sản phẩm),
+  // nên chỉ tính gợi ý dựa trên các dòng SẢN PHẨM đang có trong giỏ.
+  const productItems = useMemo(() => items.filter((i) => i.kind === "product"), [items]);
+
   // Danh mục lấy từ chính các món đang có trong giỏ. Giỏ lưu từ phiên bản cũ
   // có thể chưa có categoryId — khi đó để mảng rỗng, nghĩa là gợi ý toàn menu.
   const categoryIds = useMemo(
-    () => [...new Set(items.map((i) => i.categoryId).filter((id): id is string => Boolean(id)))],
-    [items],
+    () => [...new Set(productItems.map((i) => i.categoryId).filter((id): id is string => Boolean(id)))],
+    [productItems],
   );
-  const excludeIds = useMemo(() => [...new Set(items.map((i) => i.productId))], [items]);
+  const excludeIds = useMemo(() => [...new Set(productItems.map((i) => i.productId))], [productItems]);
 
   const key = `${categoryIds.join(",")}|${excludeIds.join(",")}`;
 

@@ -55,12 +55,24 @@ export type OrderOptionView = {
   price_delta: number;
 };
 
+/** Một món con nằm trong combo, snapshot tại thời điểm đặt. */
+export type ComboItemSnapshot = {
+  product_id: string;
+  product_name: string;
+  quantity: number;
+};
+
 export type OrderItemView = {
   id: string;
   product_id: string | null;
   product_name: string;
   product_image_url: string | null;
   options: OrderOptionView[];
+  // combo_id CHỈ để biết dòng này có phải combo hay không — hiển thị luôn
+  // dựa vào product_name/product_image_url (đã snapshot) + combo_items_snapshot,
+  // không JOIN sống lại bảng combos.
+  combo_id: string | null;
+  combo_items_snapshot: ComboItemSnapshot[];
   unit_price: number;
   quantity: number;
   line_total: number;
@@ -168,45 +180,54 @@ export async function fetchSuggestions(
   return data as ProductWithCategory[];
 }
 
-/** Ảnh chụp hiện trạng của các món/lựa chọn đang nằm trong giỏ. */
+/** Ảnh chụp hiện trạng của các món/lựa chọn/combo đang nằm trong giỏ. */
 export type CartSyncSnapshot = {
   products: Record<
     string,
     Pick<Tables<"products">, "id" | "name" | "base_price" | "discount_percent" | "is_available">
   >;
   options: Record<string, Pick<Tables<"product_options">, "id" | "name" | "price_delta" | "is_available">>;
+  combos: Record<string, Pick<Tables<"combos">, "id" | "name" | "price" | "is_available">>;
 };
 
 /**
  * Giỏ hàng sống trong localStorage nên có thể ôm dữ liệu từ nhiều ngày trước:
- * món đã bị gỡ, đã hết hàng, hoặc đã đổi giá. Đọc lại hiện trạng để cảnh báo
- * khách TRƯỚC khi họ sang bước đặt hàng.
+ * món/combo đã bị gỡ, đã hết hàng, hoặc đã đổi giá. Đọc lại hiện trạng để
+ * cảnh báo khách TRƯỚC khi họ sang bước đặt hàng.
  */
 export async function fetchCartSync(
   productIds: string[],
   optionIds: string[],
+  comboIds: string[] = [],
 ): Promise<CartSyncSnapshot> {
-  const snapshot: CartSyncSnapshot = { products: {}, options: {} };
-  if (productIds.length === 0) return snapshot;
+  const snapshot: CartSyncSnapshot = { products: {}, options: {}, combos: {} };
+  if (productIds.length === 0 && comboIds.length === 0) return snapshot;
 
-  const [productRes, optionRes] = await Promise.all([
-    supabase
-      .from("products")
-      .select("id, name, base_price, discount_percent, is_available")
-      .in("id", productIds),
+  const [productRes, optionRes, comboRes] = await Promise.all([
+    productIds.length > 0
+      ? supabase
+          .from("products")
+          .select("id, name, base_price, discount_percent, is_available")
+          .in("id", productIds)
+      : Promise.resolve({ data: [], error: null }),
     optionIds.length > 0
       ? supabase
           .from("product_options")
           .select("id, name, price_delta, is_available")
           .in("id", optionIds)
       : Promise.resolve({ data: [], error: null }),
+    comboIds.length > 0
+      ? supabase.from("combos").select("id, name, price, is_available").in("id", comboIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (productRes.error) throw productRes.error;
   if (optionRes.error) throw optionRes.error;
+  if (comboRes.error) throw comboRes.error;
 
-  for (const p of productRes.data) snapshot.products[p.id] = p;
+  for (const p of productRes.data ?? []) snapshot.products[p.id] = p;
   for (const o of optionRes.data ?? []) snapshot.options[o.id] = o;
+  for (const c of comboRes.data ?? []) snapshot.combos[c.id] = c;
 
   return snapshot;
 }
@@ -271,6 +292,53 @@ export async function fetchProducts(params: {
 export async function fetchOptionsByIds(ids: string[]): Promise<Tables<"product_options">[]> {
   if (ids.length === 0) return [];
   const { data, error } = await supabase.from("product_options").select("*").in("id", ids);
+  if (error) throw error;
+  return data;
+}
+
+// ── Combo (gộp món) ──────────────────────────────────────────────────────
+//
+// Quản lý qua Supabase Studio trực tiếp — app không có màn Admin (xem plan
+// tại C:\Users\Admin\.claude\plans\redesign-to-n-b-giao-shimmying-tower.md).
+
+/** Số combo tối đa hiển thị ở section "Ăn thả ga không lo về giá". */
+const COMBO_LIST_LIMIT = 20;
+
+/** Combo kèm danh sách tên món con — đủ để card hiển thị tóm tắt "Xôi · Trà sữa". */
+export type ComboWithItems = Tables<"combos"> & {
+  combo_items: Array<{ quantity: number; products: { name: string } | null }>;
+};
+
+/** Combo đang bật `is_featured` — dùng cho banner đầu trang chủ. */
+export async function fetchFeaturedCombos(): Promise<ComboWithItems[]> {
+  const { data, error } = await supabase
+    .from("combos")
+    .select("*, combo_items(quantity, products(name))")
+    .eq("is_available", true)
+    .eq("is_featured", true)
+    .order("sort_order");
+
+  if (error) throw error;
+  return data as ComboWithItems[];
+}
+
+/** Toàn bộ combo đang bán — dùng cho section "Ăn thả ga không lo về giá". */
+export async function fetchCombos(): Promise<ComboWithItems[]> {
+  const { data, error } = await supabase
+    .from("combos")
+    .select("*, combo_items(quantity, products(name))")
+    .eq("is_available", true)
+    .order("sort_order")
+    .limit(COMBO_LIST_LIMIT);
+
+  if (error) throw error;
+  return data as ComboWithItems[];
+}
+
+/** Dùng cho "Mua lại đơn": lấy hiện trạng HIỆN TẠI của các combo trong đơn cũ. */
+export async function fetchCombosByIds(ids: string[]): Promise<Tables<"combos">[]> {
+  if (ids.length === 0) return [];
+  const { data, error } = await supabase.from("combos").select("*").in("id", ids);
   if (error) throw error;
   return data;
 }

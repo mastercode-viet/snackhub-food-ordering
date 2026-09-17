@@ -66,12 +66,12 @@ export type CreateOrderPayload = {
   delivery_note?: string;
   payment_method: "cod" | "payos";
   discount_code?: string;
-  items: Array<{
-    product_id: string;
-    quantity: number;
-    option_ids: string[];
-    item_note?: string;
-  }>;
+  // Phải khớp CHÍNH XÁC hình dạng của cartItemSchema trong
+  // supabase/functions/_shared/schemas.ts — hai bên là bản sao của nhau.
+  items: Array<
+    | { kind: "product"; product_id: string; quantity: number; option_ids: string[]; item_note?: string }
+    | { kind: "combo"; combo_id: string; quantity: number; item_note?: string }
+  >;
 };
 
 export type CreateOrderResult = {

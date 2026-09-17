@@ -21,13 +21,33 @@ export const phoneSchema = z
   .trim()
   .regex(VN_PHONE_PATTERN, "Số di động Việt Nam gồm 10 số, ví dụ 0912345678");
 
-export const cartItemSchema = z.object({
+/**
+ * Hai loại dòng giỏ hàng, phân biệt bằng `kind`:
+ *   - "product": món lẻ, có thể có option tuỳ biến (như trước).
+ *   - "combo": gói combo giá cố định, KHÔNG có option — món con và giá
+ *     đều tra lại từ bảng `combos`/`combo_items`, không nhận từ client.
+ * Xem plan tại C:\Users\Admin\.claude\plans\redesign-to-n-b-giao-shimmying-tower.md.
+ */
+export const productCartItemSchema = z.object({
+  kind: z.literal("product"),
   product_id: z.string().uuid(),
   quantity: z.number().int().min(1).max(99),
   // Chỉ nhận ID option. Tên và GIÁ được tra lại từ DB, không lấy từ client.
   option_ids: z.array(z.string().uuid()).max(20).default([]),
   item_note: z.string().trim().max(200).optional(),
 });
+
+export const comboCartItemSchema = z.object({
+  kind: z.literal("combo"),
+  combo_id: z.string().uuid(),
+  quantity: z.number().int().min(1).max(99),
+  item_note: z.string().trim().max(200).optional(),
+});
+
+export const cartItemSchema = z.discriminatedUnion("kind", [
+  productCartItemSchema,
+  comboCartItemSchema,
+]);
 
 export const createOrderSchema = z.object({
   customer_name: z.string().trim().min(1).max(100),
@@ -50,3 +70,5 @@ export const applyDiscountSchema = z.object({
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export type CartItemInput = z.infer<typeof cartItemSchema>;
+export type ProductCartItemInput = z.infer<typeof productCartItemSchema>;
+export type ComboCartItemInput = z.infer<typeof comboCartItemSchema>;

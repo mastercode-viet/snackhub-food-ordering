@@ -1,4 +1,9 @@
-import { fetchOptionsByIds, fetchProductsByIds, type OrderItemView } from "@/lib/queries";
+import {
+  fetchCombosByIds,
+  fetchOptionsByIds,
+  fetchProductsByIds,
+  type OrderItemView,
+} from "@/lib/queries";
 import { discountedPrice } from "@/lib/format";
 import type { NewCartItem } from "@/store/cart";
 
@@ -19,25 +24,62 @@ export type ReorderResult = {
  * lại cho khách, thay vì thêm vào giỏ rồi để họ bị chặn ở bước đặt hàng.
  */
 export async function buildReorder(orderItems: OrderItemView[]): Promise<ReorderResult> {
+  const productLines = orderItems.filter((i) => !i.combo_id);
+  const comboLines = orderItems.filter((i) => i.combo_id);
+
   const productIds = [
-    ...new Set(orderItems.map((i) => i.product_id).filter((id): id is string => Boolean(id))),
+    ...new Set(productLines.map((i) => i.product_id).filter((id): id is string => Boolean(id))),
   ];
   const optionIds = [
-    ...new Set(orderItems.flatMap((i) => i.options.map((o) => o.option_id))),
+    ...new Set(productLines.flatMap((i) => i.options.map((o) => o.option_id))),
   ];
+  const comboIds = [...new Set(comboLines.map((i) => i.combo_id!))];
 
-  const [products, options] = await Promise.all([
+  const [products, options, combos] = await Promise.all([
     fetchProductsByIds(productIds),
     fetchOptionsByIds(optionIds),
+    fetchCombosByIds(comboIds),
   ]);
 
   const productById = new Map(products.map((p) => [p.id, p]));
   const optionById = new Map(options.map((o) => [o.id, o]));
+  const comboById = new Map(combos.map((c) => [c.id, c]));
 
   const items: NewCartItem[] = [];
   const skipped: string[] = [];
 
   for (const line of orderItems) {
+    // ── Combo: chỉ kiểm is_available của chính combo, y hệt mức độ kiểm tra
+    // của sản phẩm lẻ (không xét sâu từng món con — đó là việc của
+    // create-order lúc đặt hàng thật). ──────────────────────────────────
+    if (line.combo_id) {
+      const combo = comboById.get(line.combo_id);
+      if (!combo || !combo.is_available) {
+        skipped.push(line.product_name);
+        continue;
+      }
+
+      items.push({
+        kind: "combo",
+        comboId: combo.id,
+        slug: combo.slug,
+        name: combo.name,
+        imageUrl: combo.image_url,
+        unitPrice: Number(combo.price),
+        // Tên món con lấy từ SNAPSHOT cũ (đủ dùng để hiển thị tóm tắt trong
+        // giỏ), không tra lại DB — khác với sản phẩm/option vì combo không
+        // có gì để "đổi giá theo lựa chọn", chỉ có is_available là đáng kiểm.
+        items: line.combo_items_snapshot.map((i) => ({
+          productId: i.product_id,
+          name: i.product_name,
+          quantity: i.quantity,
+        })),
+        quantity: line.quantity,
+        note: line.item_note,
+      });
+      continue;
+    }
+
     const product = line.product_id ? productById.get(line.product_id) : undefined;
 
     if (!product || !product.is_available) {
@@ -62,6 +104,7 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
     const optionsPrice = cartOptions.reduce((s, o) => s + o.priceDelta, 0);
 
     items.push({
+      kind: "product",
       productId: product.id,
       slug: product.slug,
       name: product.name,

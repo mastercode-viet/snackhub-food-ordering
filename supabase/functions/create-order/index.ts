@@ -9,8 +9,15 @@ import { createOrderSchema, type CartItemInput } from "../_shared/schemas.ts";
 import { clientKey, fail, isOriginAllowed, json, preflight } from "../_shared/http.ts";
 import { createPaymentLink, newPayosOrderCode } from "../_shared/payos.ts";
 
+/**
+ * Một dòng order_items sau khi tra giá ở server. Dùng CHUNG hình dạng cho cả
+ * dòng sản phẩm lẫn dòng combo (thay vì union) vì cả hai đều insert thẳng
+ * vào cùng một bảng — combo chỉ để `product_id = null` và điền
+ * `combo_id`/`combo_items_snapshot`, sản phẩm thì ngược lại.
+ */
 interface BuiltItem {
-  product_id: string;
+  product_id: string | null;
+  combo_id: string | null;
   product_name: string;
   product_image_url: string | null;
   base_price: number;
@@ -26,6 +33,7 @@ interface BuiltItem {
   quantity: number;
   line_total: number;
   item_note: string | null;
+  combo_items_snapshot: Array<{ product_id: string; product_name: string; quantity: number }>;
 }
 
 Deno.serve(async (req) => {
@@ -201,15 +209,19 @@ async function rollback(db: ReturnType<typeof adminClient>, orderId: string, dis
 }
 
 /**
- * Tra lại sản phẩm/option từ DB rồi tính giá. Trả về snapshot đầy đủ
+ * Tra lại sản phẩm/option/combo từ DB rồi tính giá. Trả về snapshot đầy đủ
  * để ghi vào order_items (không JOIN sống khi hiển thị lại đơn).
  */
 async function buildItems(
   db: ReturnType<typeof adminClient>,
   cart: CartItemInput[],
 ): Promise<{ items: BuiltItem[] } | { error: string; message: string }> {
-  const productIds = [...new Set(cart.map((i) => i.product_id))];
-  const optionIds = [...new Set(cart.flatMap((i) => i.option_ids))];
+  const productLines = cart.filter((i) => i.kind === "product");
+  const comboLines = cart.filter((i) => i.kind === "combo");
+
+  // ── Sản phẩm lẻ: y hệt logic cũ ─────────────────────────────────────────
+  const productIds = [...new Set(productLines.map((i) => i.product_id))];
+  const optionIds = [...new Set(productLines.flatMap((i) => i.option_ids))];
 
   const { data: products, error: pErr } = await db
     .from("products")
@@ -242,9 +254,108 @@ async function buildItems(
     for (const o of options!) optionById.set(o.id, o);
   }
 
+  // ── Combo: tra combo + món con, validate còn bán được ───────────────────
+  const comboIds = [...new Set(comboLines.map((i) => i.combo_id))];
+  const comboById = new Map<string, { id: string; name: string; image_url: string | null; price: number; is_available: boolean }>();
+  const comboItemsByComboId = new Map<
+    string,
+    Array<{ product_id: string; name: string; quantity: number; is_available: boolean }>
+  >();
+
+  if (comboIds.length > 0) {
+    const { data: combos, error: cErr } = await db
+      .from("combos")
+      .select("id, name, image_url, price, is_available")
+      .in("id", comboIds);
+    if (cErr) throw cErr;
+    for (const c of combos!) comboById.set(c.id, c);
+
+    for (const id of comboIds) {
+      const c = comboById.get(id);
+      if (!c) return { error: "COMBO_NOT_FOUND", message: "Có combo trong giỏ không còn tồn tại." };
+      if (!c.is_available) return { error: "COMBO_UNAVAILABLE", message: `Combo "${c.name}" đang tạm hết.` };
+    }
+
+    // Truy vấn phẳng + join bằng Map (giống hệt cách products/options ở trên
+    // được tra) thay vì nested-select qua FK: adminClient() không truyền
+    // generic Database nên supabase-js không biết chiều quan hệ, suy luận
+    // sai `products` thành mảng dù thực chất mỗi combo_item chỉ có 1 sản
+    // phẩm (many-to-one). Truy vấn phẳng tránh hẳn vùng xám kiểu dữ liệu đó.
+    const { data: comboItemRows, error: ciErr } = await db
+      .from("combo_items")
+      .select("combo_id, product_id, quantity")
+      .in("combo_id", comboIds);
+    if (ciErr) throw ciErr;
+
+    const comboProductIds = [...new Set(comboItemRows!.map((r) => r.product_id))];
+    const comboProductById = new Map<string, { id: string; name: string; is_available: boolean }>();
+    if (comboProductIds.length > 0) {
+      const { data: comboProducts, error: cpErr } = await db
+        .from("products")
+        .select("id, name, is_available")
+        .in("id", comboProductIds);
+      if (cpErr) throw cpErr;
+      for (const p of comboProducts!) comboProductById.set(p.id, p);
+    }
+
+    for (const row of comboItemRows!) {
+      const product = comboProductById.get(row.product_id);
+      if (!product) continue; // sản phẩm đã bị xoá — về lý thuyết không xảy ra vì FK restrict
+      const list = comboItemsByComboId.get(row.combo_id) ?? [];
+      list.push({
+        product_id: product.id,
+        name: product.name,
+        quantity: row.quantity,
+        is_available: product.is_available,
+      });
+      comboItemsByComboId.set(row.combo_id, list);
+    }
+
+    // Phòng vệ thêm: `combos.is_available` là công tắc chính, nhưng nếu quán
+    // tắt is_available của 1 món con mà quên tắt combo, vẫn chặn ở đây —
+    // không tin riêng một cờ duy nhất.
+    for (const id of comboIds) {
+      const rows = comboItemsByComboId.get(id) ?? [];
+      const missing = rows.find((r) => !r.is_available);
+      if (missing) {
+        return {
+          error: "COMBO_ITEM_UNAVAILABLE",
+          message: `Combo "${comboById.get(id)!.name}" đang thiếu "${missing.name}", tạm không đặt được.`,
+        };
+      }
+    }
+  }
+
+  // ── Dựng từng dòng theo ĐÚNG thứ tự giỏ hàng gốc ─────────────────────────
   const items: BuiltItem[] = [];
 
   for (const line of cart) {
+    if (line.kind === "combo") {
+      const combo = comboById.get(line.combo_id)!;
+      const comboItems = comboItemsByComboId.get(combo.id) ?? [];
+      const unitPrice = Number(combo.price);
+
+      items.push({
+        product_id: null,
+        combo_id: combo.id,
+        product_name: combo.name,
+        product_image_url: combo.image_url,
+        base_price: unitPrice,
+        options: [],
+        options_price: 0,
+        unit_price: unitPrice,
+        quantity: line.quantity,
+        line_total: unitPrice * line.quantity,
+        item_note: line.item_note ?? null,
+        combo_items_snapshot: comboItems.map((i) => ({
+          product_id: i.product_id,
+          product_name: i.name,
+          quantity: i.quantity,
+        })),
+      });
+      continue;
+    }
+
     const product = productById.get(line.product_id)!;
     const chosen: BuiltItem["options"] = [];
     const countByGroup = new Map<string, number>();
@@ -287,6 +398,7 @@ async function buildItems(
 
     items.push({
       product_id: product.id,
+      combo_id: null,
       product_name: product.name,
       product_image_url: product.image_url,
       base_price: Number(product.base_price),
@@ -296,6 +408,7 @@ async function buildItems(
       quantity: line.quantity,
       line_total: unitPrice * line.quantity,
       item_note: line.item_note ?? null,
+      combo_items_snapshot: [],
     });
   }
 

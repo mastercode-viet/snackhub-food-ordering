@@ -21,8 +21,10 @@ export type CartOption = {
   priceDelta: number;
 };
 
-export type CartItem = {
+/** Dòng sản phẩm lẻ, có thể có option tuỳ biến — hành vi y hệt từ trước. */
+export type ProductCartItem = {
   lineId: string;
+  kind: "product";
   productId: string;
   slug: string;
   name: string;
@@ -41,19 +43,53 @@ export type CartItem = {
   note: string | null;
 };
 
-export type NewCartItem = Omit<CartItem, "lineId">;
+/** Một món con nằm trong combo — chỉ để hiển thị tóm tắt, không có giá riêng. */
+export type ComboLineItem = {
+  productId: string;
+  name: string;
+  quantity: number;
+};
 
-/** Hai dòng gộp được với nhau khi cùng món, cùng bộ option và cùng ghi chú. */
+/**
+ * Dòng combo — giá cố định, KHÔNG có option tuỳ biến. `items` là danh sách
+ * món con để CartLine hiển thị tóm tắt (không phải nguồn tính giá — giá luôn
+ * là `unitPrice` do combo quy định).
+ */
+export type ComboCartItem = {
+  lineId: string;
+  kind: "combo";
+  comboId: string;
+  slug: string;
+  name: string;
+  imageUrl: string | null;
+  unitPrice: number;
+  items: ComboLineItem[];
+  quantity: number;
+  note: string | null;
+};
+
+export type CartItem = ProductCartItem | ComboCartItem;
+export type NewCartItem = Omit<ProductCartItem, "lineId"> | Omit<ComboCartItem, "lineId">;
+
+/**
+ * Hai dòng gộp được với nhau khi: cùng loại (product/combo) VÀ cùng món/combo
+ * VÀ (với sản phẩm) cùng bộ option VÀ cùng ghi chú. Combo không có option nên
+ * chỉ so theo comboId + ghi chú.
+ */
 function identityOf(item: NewCartItem): string {
+  const note = item.note?.trim() ?? "";
+  if (item.kind === "combo") return `combo:${item.comboId}|${note}`;
   const ids = item.options.map((o) => o.optionId).sort().join(",");
-  return `${item.productId}|${ids}|${item.note?.trim() ?? ""}`;
+  return `product:${item.productId}|${ids}|${note}`;
 }
 
 type CartState = {
   items: CartItem[];
   addItem: (item: NewCartItem) => void;
   setQuantity: (lineId: string, quantity: number) => void;
-  updateItem: (lineId: string, patch: Partial<CartItem>) => void;
+  // Chỉ dùng để cập nhật giá sản phẩm sau khi useCartSync phát hiện đổi giá
+  // (xem CartPage.tsx) — combo có giá cố định, không có "issue" dạng này.
+  updateItem: (lineId: string, patch: Partial<ProductCartItem>) => void;
   removeItem: (lineId: string) => void;
   clear: () => void;
 };
@@ -93,7 +129,9 @@ export const useCartStore = create<CartState>()(
 
       updateItem: (lineId, patch) =>
         set((state) => ({
-          items: state.items.map((i) => (i.lineId === lineId ? { ...i, ...patch } : i)),
+          items: state.items.map((i) =>
+            i.lineId === lineId && i.kind === "product" ? { ...i, ...patch } : i,
+          ),
         })),
 
       removeItem: (lineId) =>
@@ -103,14 +141,22 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: "snackhub-cart",
-      version: 2,
-      // v1 chưa lưu categoryId; giỏ cũ trong localStorage vẫn phải dùng được.
-      migrate: (state, version) => {
-        const s = state as CartState;
+      version: 3,
+      // v1 chưa lưu categoryId; v2 chưa có "kind" (chưa có combo, mọi dòng
+      // đều là sản phẩm) — giỏ cũ trong localStorage vẫn phải dùng được.
+      // Dữ liệu cũ trong localStorage chưa chắc khớp CartItem hiện tại (đó
+      // chính là lý do cần migrate) — xử lý ở dạng lỏng, chỉ ép kiểu CartState
+      // ở bước trả về cuối cùng. Ép kiểu ngay từ đầu (như bản trước) khiến
+      // TypeScript tưởng nhầm input đã có "kind", vỡ type union mới.
+      migrate: (persisted, version) => {
+        let items = ((persisted as { items?: unknown[] })?.items ?? []) as Record<string, unknown>[];
         if (version < 2) {
-          s.items = (s.items ?? []).map((i) => ({ ...i, categoryId: i.categoryId ?? null }));
+          items = items.map((i) => ({ ...i, categoryId: i.categoryId ?? null }));
         }
-        return s;
+        if (version < 3) {
+          items = items.map((i) => ("kind" in i ? i : { ...i, kind: "product" }));
+        }
+        return { items } as CartState;
       },
     },
   ),

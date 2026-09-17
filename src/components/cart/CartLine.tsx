@@ -20,7 +20,9 @@ export default function CartLine({
 }) {
   const issue = check?.issue ?? null;
   const blocked = check?.blocking ?? false;
-  const optionSummary = item.options.map((o) => o.optionName).join(", ");
+  // Combo không có option tuỳ biến — dòng tóm tắt thay bằng danh sách món con.
+  const optionSummary =
+    item.kind === "combo" ? item.items.map((i) => i.name).join(" · ") : item.options.map((o) => o.optionName).join(", ");
 
   return (
     <motion.div
@@ -37,7 +39,7 @@ export default function CartLine({
         <ProductImage
           src={item.imageUrl}
           alt={item.name}
-          fallbackIcon={item.categoryIcon}
+          fallbackIcon={item.kind === "combo" ? "🍱" : item.categoryIcon}
           className={`size-20 shrink-0 rounded-card-sm ${blocked ? "opacity-45 grayscale" : ""}`}
         />
 

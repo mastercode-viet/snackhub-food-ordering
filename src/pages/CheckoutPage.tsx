@@ -106,12 +106,17 @@ export default function CheckoutPage() {
         delivery_note: composeDeliveryNote(parsed.data),
         payment_method: parsed.data.payment_method,
         discount_code: discount?.code,
-        items: items.map((i) => ({
-          product_id: i.productId,
-          quantity: i.quantity,
-          option_ids: i.options.map((o) => o.optionId),
-          item_note: i.note ?? undefined,
-        })),
+        items: items.map((i) =>
+          i.kind === "combo"
+            ? { kind: "combo" as const, combo_id: i.comboId, quantity: i.quantity, item_note: i.note ?? undefined }
+            : {
+                kind: "product" as const,
+                product_id: i.productId,
+                quantity: i.quantity,
+                option_ids: i.options.map((o) => o.optionId),
+                item_note: i.note ?? undefined,
+              },
+        ),
       });
 
       // Nhớ địa chỉ cho lần sau, rồi dọn giỏ
