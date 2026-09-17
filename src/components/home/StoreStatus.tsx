@@ -1,4 +1,4 @@
-import { Clock } from "lucide-react";
+import { Clock, Moon } from "lucide-react";
 import { Skeleton } from "@/components/Skeleton";
 import type { Tables } from "@/types/database";
 
@@ -19,7 +19,7 @@ export function StoreHoursBadge({ settings }: { settings: Tables<"store_settings
     <div className="flex shrink-0 items-center gap-1 rounded-full bg-surface-container-lowest px-2.5 py-1.5 border border-outline-variant shadow-card">
       <Clock size={16} className="text-primary" strokeWidth={2.5} />
       <span className="text-label-sm font-bold text-on-surface">
-        {shortTime(settings.open_time)}–{shortTime(settings.close_time)}
+        {shortTime(settings.open_time)}-{shortTime(settings.close_time)}
       </span>
     </div>
   );
@@ -48,12 +48,15 @@ export function StoreStatusLine({ isOpen }: { isOpen: boolean | null }) {
  * Edge Function `create-order` vẫn kiểm tra lại bằng chính hàm is_store_open().
  */
 export function StoreClosedBanner({ settings }: { settings: Tables<"store_settings"> | null }) {
-  const range = settings ? `${shortTime(settings.open_time)}–${shortTime(settings.close_time)}` : "6:00–18:00";
+  const range = settings ? `${shortTime(settings.open_time)}-${shortTime(settings.close_time)}` : "6:00-18:00";
 
   return (
-    <div className="mx-margin-mobile mt-3 flex items-start gap-3 rounded-2xl bg-tertiary-fixed/70 p-3.5 shadow-card">
-      <span className="text-xl" aria-hidden="true">
-        🌙
+    <div className="mx-margin-mobile mt-3 flex items-start gap-3 rounded-card bg-tertiary-fixed/70 p-3.5 shadow-card">
+      <span
+        className="grid size-9 shrink-0 place-items-center rounded-full bg-on-tertiary-fixed/10 text-on-tertiary-fixed"
+        aria-hidden="true"
+      >
+        <Moon size={18} strokeWidth={2.2} />
       </span>
       <div>
         <p className="text-label-md text-on-tertiary-fixed">Quán đang tạm nghỉ</p>

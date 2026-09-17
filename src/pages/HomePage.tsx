@@ -83,7 +83,7 @@ export default function HomePage() {
                   layout lúc ảnh chưa tải xong */}
               <img
                 src="/logo.png"
-                alt="Bếp Của Thỏ"
+                alt="SnackHub"
                 width={156}
                 height={160}
                 className="size-12 shrink-0 object-contain"

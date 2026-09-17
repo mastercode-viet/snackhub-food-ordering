@@ -55,7 +55,7 @@ export default function CountdownTimer({ endsAt }: { endsAt: string | null }) {
       {[pad(hours), pad(minutes), pad(seconds)].map((part, i) => (
         <span key={i} className="flex items-center gap-1">
           {i > 0 && <span className="text-label-sm font-bold text-on-surface-variant">:</span>}
-          <span className="rounded-md bg-inverse-surface px-1.5 py-0.5 text-label-sm font-bold tabular-nums text-inverse-on-surface">
+          <span className="rounded-card-sm bg-inverse-surface px-1.5 py-0.5 text-label-sm font-bold tabular-nums text-inverse-on-surface">
             {part}
           </span>
         </span>
