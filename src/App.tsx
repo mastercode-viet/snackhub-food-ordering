@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import RootLayout from "@/routes/RootLayout";
 import AppLayout from "@/routes/AppLayout";
@@ -9,6 +10,10 @@ import ProductDetailPage from "@/pages/ProductDetailPage";
 import CheckoutPage from "@/pages/CheckoutPage";
 import OrderTrackingPage from "@/pages/OrderTrackingPage";
 import NotFoundPage from "@/pages/NotFoundPage";
+
+// Khu vực Admin tách khỏi bundle khách: khách không bao giờ tải màn quản trị.
+const AdminLayout = lazy(() => import("@/routes/AdminLayout"));
+const AdminToppingsPage = lazy(() => import("@/pages/admin/AdminToppingsPage"));
 
 const router = createBrowserRouter([
   {
@@ -30,6 +35,19 @@ const router = createBrowserRouter([
       { path: "/mon/:slug", element: <ProductDetailPage /> },
       { path: "/dat-hang", element: <CheckoutPage /> },
       { path: "/don-hang/:orderCode", element: <OrderTrackingPage /> },
+
+      {
+        path: "/admin",
+        element: (
+          <Suspense fallback={null}>
+            <AdminLayout />
+          </Suspense>
+        ),
+        children: [
+          { index: true, element: <AdminToppingsPage /> },
+          { path: "toppings", element: <AdminToppingsPage /> },
+        ],
+      },
 
       { path: "*", element: <NotFoundPage /> },
     ],
