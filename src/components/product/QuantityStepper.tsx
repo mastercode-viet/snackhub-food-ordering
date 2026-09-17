@@ -13,7 +13,7 @@ export default function QuantityStepper({
   max?: number;
 }) {
   return (
-    <div className="flex shrink-0 items-center rounded-full bg-surface-container/80 p-1 border border-outline-variant/50 shadow-inner">
+    <div className="flex shrink-0 items-center rounded-full bg-surface-container/80 p-1 border border-outline-variant/50">
       <motion.button
         whileTap={{ scale: 0.85 }}
         type="button"

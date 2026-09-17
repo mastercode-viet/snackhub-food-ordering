@@ -121,7 +121,7 @@ export default function OptionGroup({
                 whileTap={disabled ? {} : { scale: 0.98 }}
                 className={`flex items-center justify-between gap-3 rounded-card p-3.5 border transition-all ${
                   active
-                    ? "border-primary/50 bg-surface-container/90 shadow-sm"
+                    ? "border-primary/50 bg-surface-container/90 shadow-card"
                     : "border-outline-variant/50 bg-surface-container-low/60 hover:bg-surface-container-low"
                 } ${disabled ? "opacity-50" : "cursor-pointer"}`}
               >
@@ -135,7 +135,7 @@ export default function OptionGroup({
                   />
                   <span
                     aria-hidden="true"
-                    className={`grid size-5 shrink-0 place-items-center rounded-md border-2 transition-all ${
+                    className={`grid size-5 shrink-0 place-items-center rounded-card-sm border-2 transition-all ${
                       active
                         ? "border-primary bg-primary text-on-primary shadow-badge"
                         : "border-outline-variant bg-surface-container-lowest"
