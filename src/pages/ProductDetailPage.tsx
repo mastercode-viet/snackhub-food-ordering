@@ -10,6 +10,12 @@ import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { useProductDetail } from "@/hooks/useMenu";
 import { discountedPrice, formatVnd } from "@/lib/format";
+import {
+  chosenOptions,
+  initialSelections,
+  missingRequired,
+  toOptionGroups,
+} from "@/lib/productOptions";
 import { useCartStore, type CartOption } from "@/store/cart";
 import { toast } from "@/store/toast";
 
@@ -26,76 +32,20 @@ export default function ProductDetailPage() {
   const [note, setNote] = useState("");
   const [touched, setTouched] = useState(false);
 
-  /**
-   * Nhóm topping dùng chung được nắn về đúng hình dạng của nhóm option lẻ rồi
-   * ghép chung một danh sách. Nhờ vậy toàn bộ phần chọn / tính giá / thêm vào
-   * giỏ bên dưới không phải biết hai loại — với cart và Edge Function thì
-   * topping cũng chỉ là một option id.
-   *
-   * Topping luôn tuỳ chọn: is_required = false, min_select = 0.
-   */
-  const groups: OptionGroupData[] = useMemo(() => {
-    if (!product) return [];
+  const groups: OptionGroupData[] = useMemo(
+    () => (product ? toOptionGroups(product) : []),
+    [product],
+  );
 
-    const toppings: OptionGroupData[] = product.toppingGroups
-      .filter((g) => g.topping_items.length > 0)
-      .map((g) => ({
-        id: g.id,
-        product_id: product.id,
-        name: g.name,
-        is_required: false,
-        min_select: 0,
-        max_select: g.topping_items.length,
-        sort_order: g.sort_order,
-        created_at: g.created_at,
-        product_options: g.topping_items.map((t) => ({
-          id: t.id,
-          group_id: g.id,
-          name: t.name,
-          price_delta: t.price_delta,
-          is_available: t.is_available,
-          sort_order: t.sort_order,
-          created_at: t.created_at,
-        })),
-      }));
+  const initialised = useMemo(() => initialSelections(groups), [groups]);
 
-    return [...product.product_option_groups, ...toppings];
-  }, [product]);
+  const effective: Record<string, string[]> = { ...initialised, ...selections };
 
-  const initialised = useMemo(() => {
-    if (!product) return null;
-    const initial: Record<string, string[]> = {};
-    for (const group of groups) {
-      if (group.is_required && group.max_select === 1) {
-        const first = group.product_options.find((o) => o.is_available);
-        if (first) initial[group.id] = [first.id];
-      }
-    }
-    return initial;
-  }, [groups, product]);
-
-  const effective: Record<string, string[]> = { ...(initialised ?? {}), ...selections };
-
-  const chosen: CartOption[] = useMemo(() => {
-    if (!product) return [];
-    const result: CartOption[] = [];
-    for (const group of groups) {
-      for (const id of effective[group.id] ?? []) {
-        const opt = group.product_options.find((o) => o.id === id);
-        if (opt) {
-          result.push({
-            groupId: group.id,
-            groupName: group.name,
-            optionId: opt.id,
-            optionName: opt.name,
-            priceDelta: Number(opt.price_delta),
-          });
-        }
-      }
-    }
-    return result;
+  const chosen: CartOption[] = useMemo(
+    () => chosenOptions(groups, effective),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product, groups, JSON.stringify(effective)]);
+    [groups, JSON.stringify(effective)],
+  );
 
   function goBack() {
     if (location.key !== "default") navigate(-1);
@@ -130,9 +80,7 @@ export default function ProductDetailPage() {
   const total = unitPrice * quantity;
   const savings = product.base_price - unitBase;
 
-  const missingGroups = groups.filter(
-    (g) => g.is_required && (effective[g.id]?.length ?? 0) < Math.max(1, g.min_select),
-  );
+  const missingGroups = missingRequired(groups, effective);
   const canAdd = product.is_available && missingGroups.length === 0;
 
   function handleAdd() {

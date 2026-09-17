@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { motion } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
+import ToppingSheet from "@/components/product/ToppingSheet";
 import { discountedPrice, formatVnd } from "@/lib/format";
 import type { ProductWithCategory } from "@/lib/queries";
 
 export default function ProductCard({ product }: { product: ProductWithCategory }) {
+  const [sheetOpen, setSheetOpen] = useState(false);
   const hasDiscount = product.discount_percent > 0;
   const finalPrice = discountedPrice(product.base_price, product.discount_percent);
   const soldOut = !product.is_available;
@@ -62,14 +65,18 @@ export default function ProductCard({ product }: { product: ProductWithCategory 
           </div>
 
           {!soldOut && (
-            <motion.span
+            // Vùng bấm TÁCH BIỆT khỏi link mở chi tiết: z-20 để nổi lên trên
+            // lớp link phủ kín card, và size-11 cho đủ 44px.
+            <motion.button
               whileHover={{ scale: 1.1, rotate: 90 }}
               whileTap={{ scale: 0.9 }}
-              aria-hidden="true"
-              className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow group-hover:shadow-card-hover"
+              type="button"
+              onClick={() => setSheetOpen(true)}
+              aria-label={`Thêm ${product.name} vào giỏ`}
+              className="relative z-20 grid size-11 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow group-hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               <Plus size={18} strokeWidth={2.8} />
-            </motion.span>
+            </motion.button>
           )}
         </div>
       </div>
@@ -88,13 +95,27 @@ export default function ProductCard({ product }: { product: ProductWithCategory 
   }
 
   return (
-    <motion.div
-      whileHover={{ y: -4 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
-    >
-      <Link to={`/mon/${product.slug}`} className={shell} aria-label={`Xem ${product.name}`}>
+    <>
+      <motion.div
+        whileHover={{ y: -4 }}
+        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+        className={shell}
+      >
+        {/* Link phủ kín card thay vì bọc ngoài, để nút "+" là phần tử bấm
+            riêng — nút lồng trong <a> là HTML không hợp lệ.
+            z-10 vì nội dung card có phần tử `relative` sẽ vẽ đè lên lớp link
+            nếu link nằm ở lớp mặc định; nút "+" phải cao hơn nữa (z-20). */}
+        <Link
+          to={`/mon/${product.slug}`}
+          aria-label={`Xem ${product.name}`}
+          className="absolute inset-0 z-10 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        />
         {inner}
-      </Link>
-    </motion.div>
+      </motion.div>
+
+      {sheetOpen && (
+        <ToppingSheet slug={product.slug} onClose={() => setSheetOpen(false)} />
+      )}
+    </>
   );
 }
