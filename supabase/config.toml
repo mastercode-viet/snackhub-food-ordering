@@ -1,0 +1,12 @@
+project_id = "awquwyqtcbgbdqkpehnp"
+
+# Guest gọi kèm anon/publishable key -> gateway tự verify.
+[functions.create-order]
+verify_jwt = true
+
+[functions.apply-discount]
+verify_jwt = true
+
+# PayOS KHÔNG gửi JWT. Bảo mật dựa hoàn toàn vào HMAC checksum trong body.
+[functions.payos-webhook]
+verify_jwt = false

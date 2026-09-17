@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_publishable_keys",
+      "mcp__claude_ai_Supabase__generate_typescript_types",
+      "PowerShell(npm install -D @types/node --no-audit --no-fund 2>&1)",
+      "PowerShell(npx vite build 2>&1)",
+      "Read(//c/Users/Admin/AppData/Local/Temp/stitch/**)",
+      "Bash(cd /c/Users/Admin/AppData/Local/Temp/stitch && head -c 3000 home.html)",
+      "Bash(node -e ' *)",
+      "mcp__supabase__execute_sql",
+      "Read(//c/Users/Admin/**)",
+      "Bash(claude mcp *)",
+      "Bash(npx -y playwright install chromium)",
+      "Bash(node \"C:/Users/Admin/AppData/Local/Temp/claude/d--snackhub/0b2d7a8e-8209-44a0-8b48-559fe2661168/scratchpad/measure.mjs\" src \"BAN DO TRUOC\")",
+      "Bash(tee \"C:/Users/Admin/AppData/Local/Temp/claude/d--snackhub/0b2d7a8e-8209-44a0-8b48-559fe2661168/scratchpad/before.txt\")"
+    ]
+  },
+  "enabledPlugins": {
+    "taste-skill@taste-skill": true
+  }
+}

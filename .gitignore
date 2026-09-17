@@ -1,0 +1,21 @@
+node_modules/
+dist/
+dist-ssr/
+.env
+.env.local
+.env.*.local
+*.local
+.claude/settings.local.json
+.DS_Store
+*.log
+
+# Secrets Edge Function — chứa SERVICE_ROLE_KEY và PayOS checksum key
+supabase/functions/.env
+supabase/.temp/
+
+# Chứa API key Stitch ở header — không được vào git.
+# Mỗi máy tự tạo lại file này, xem .mcp.json.example
+.mcp.json
+
+# Build artifact của `tsc -b`
+*.tsbuildinfo
