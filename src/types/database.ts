@@ -384,6 +384,39 @@ export type Database = {
           },
         ];
       };
+      product_topping_groups: {
+        Row: {
+          product_id: string;
+          sort_order: number;
+          topping_group_id: string;
+        };
+        Insert: {
+          product_id: string;
+          sort_order?: number;
+          topping_group_id: string;
+        };
+        Update: {
+          product_id?: string;
+          sort_order?: number;
+          topping_group_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "product_topping_groups_product_id_fkey";
+            columns: ["product_id"];
+            isOneToOne: false;
+            referencedRelation: "products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "product_topping_groups_topping_group_id_fkey";
+            columns: ["topping_group_id"];
+            isOneToOne: false;
+            referencedRelation: "topping_groups";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       products: {
         Row: {
           base_price: number;
@@ -459,6 +492,68 @@ export type Database = {
         Insert: Partial<Database["public"]["Tables"]["store_settings"]["Row"]>;
         Update: Partial<Database["public"]["Tables"]["store_settings"]["Row"]>;
         Relationships: [];
+      };
+      topping_groups: {
+        Row: {
+          created_at: string;
+          id: string;
+          name: string;
+          sort_order: number;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          name: string;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          name?: string;
+          sort_order?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      topping_items: {
+        Row: {
+          created_at: string;
+          group_id: string;
+          id: string;
+          is_available: boolean;
+          name: string;
+          price_delta: number;
+          sort_order: number;
+        };
+        Insert: {
+          created_at?: string;
+          group_id: string;
+          id?: string;
+          is_available?: boolean;
+          name: string;
+          price_delta?: number;
+          sort_order?: number;
+        };
+        Update: {
+          created_at?: string;
+          group_id?: string;
+          id?: string;
+          is_available?: boolean;
+          name?: string;
+          price_delta?: number;
+          sort_order?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "topping_items_group_id_fkey";
+            columns: ["group_id"];
+            isOneToOne: false;
+            referencedRelation: "topping_groups";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       // payos_webhook_events và rate_limits chỉ Edge Function chạm tới —
       // frontend không có quyền, nên cố tình không khai báo ở đây.
