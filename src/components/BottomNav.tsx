@@ -87,7 +87,7 @@ export default function BottomNav() {
                     {isActive && (
                       <motion.div
                         layoutId="activeBottomTab"
-                        className="absolute inset-x-2 inset-y-1.5 rounded-card bg-surface-container/80 -z-10"
+                        className="absolute inset-x-1.5 inset-y-1 rounded-card bg-surface-container/80 -z-10"
                         transition={{ type: "spring", stiffness: 380, damping: 30 }}
                       />
                     )}

@@ -167,11 +167,11 @@ export default function HomePage() {
 
       <ProductRail
         title={
-          /* Wordmark như mẫu: "FLASH" đỏ, "SALE" đen, cả hai in nghiêng đậm */
-          <span className="text-headline-sm font-extrabold italic tracking-tight">
-            <span className="text-primary">FLASH</span>{" "}
-            <span className="text-on-surface">SALE</span>
-          </span>
+          // Giữ "FLASH" tô cam để giữ chút khẩn cấp; "SALE" ăn theo màu mực
+          // mặc định của <h2> dùng chung, không cần tự set màu riêng nữa.
+          <>
+            <span className="text-primary">FLASH</span> SALE
+          </>
         }
         icon={<AlarmClock size={20} strokeWidth={2.6} />}
         products={rails.flashSale}
@@ -183,20 +183,6 @@ export default function HomePage() {
         /* Chưa có cột thời gian khuyến mãi trong `products` nên truyền null:
            CountdownTimer sẽ tự ẩn thay vì đếm ngược tới một mốc bịa ra. */
         headerRight={<CountdownTimer endsAt={null} />}
-      />
-
-      <ProductRail
-        title={
-          <span className="text-headline-sm font-extrabold tracking-tight text-primary">
-            Xem gần đây
-          </span>
-        }
-        layout="wide"
-        /* Chưa có nơi lưu lịch sử xem món — khối chạy ở trạng thái rỗng cho tới
-           khi thêm store `recentProducts`. Giao diện đã sẵn sàng nhận dữ liệu. */
-        products={[]}
-        loading={false}
-        emptyText="Món bạn vừa xem sẽ xuất hiện ở đây."
       />
 
       <ProductRail

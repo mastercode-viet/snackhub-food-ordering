@@ -38,8 +38,13 @@ export default function ProductRail({
   headerRight?: ReactNode;
   emptyText?: string;
 }) {
+  // `onBanner` chỉ còn quyết định màu đĩa icon (xem `iconTone` bên dưới) và
+  // shadow mặc định của RailCard — dải màu phủ kín section đã bỏ (xem lý do
+  // ở phần header bên dưới).
   const onBanner = tone !== "plain";
-  const bandClass = tone === "banner-info" ? "bg-info" : "bg-primary-container";
+  // "banner-primary" và "plain" giờ trông giống hệt nhau (cả hai đều dùng
+  // đĩa cam) nên chỉ còn một nhánh thật sự khác: info hay không.
+  const iconTone = tone === "banner-info" ? "bg-info/10 text-info" : "bg-primary/10 text-primary";
 
   const body =
     loading && !products ? (
@@ -47,15 +52,7 @@ export default function ProductRail({
     ) : error ? (
       <ErrorState onRetry={onRetry} />
     ) : !products || products.length === 0 ? (
-      <p
-        className={`px-1 py-6 text-center text-body-sm ${
-          onBanner
-            ? "rounded-card bg-surface-container-lowest text-on-surface-variant"
-            : "text-on-surface-variant"
-        }`}
-      >
-        {emptyText}
-      </p>
+      <p className="px-1 py-6 text-center text-body-sm text-on-surface-variant">{emptyText}</p>
     ) : (
       <ul className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1 pb-1.5 scroll-smooth">
         {products.map((p) => (
@@ -68,69 +65,46 @@ export default function ProductRail({
 
   return (
     <section className="mt-6 px-margin-mobile md:px-gutter">
+      {/*
+       * Trước đây "Must Try" và "Ăn Ngon Rẻ" phủ kín section bằng dải màu
+       * (bg-info/bg-primary-container) với thẻ kéo đè lên trên (-mt-12) —
+       * đúng kiểu "app đồ ăn AI" ồn ào mà cả đợt redesign đang gỡ bỏ, và làm
+       * 2/3 khối trên trang chủ đối chọi màu với 1 khối còn lại (Flash Sale)
+       * dùng nền trắng. Giờ CẢ BA dùng chung một vỏ card trắng; bản sắc mỗi
+       * khối đến từ ĐĨA ICON nhuộm màu nhẹ (cùng khuôn với ErrorState.tsx,
+       * StoreStatus.tsx) thay vì cả dải nền — accent hiếm mới có sức nặng.
+       */}
       <div className="overflow-hidden rounded-card-lg bg-surface-container-lowest shadow-card border border-outline-variant/40">
-        {onBanner ? (
-          <>
-            {/* Dải màu có mép phải bo cong với hiếu ứng gradient mềm */}
-            <header className={`relative overflow-hidden px-4.5 pb-16 pt-4 ${bandClass}`}>
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute -right-16 top-1/2 size-56 -translate-y-1/2 rounded-full bg-surface-container-lowest/15 backdrop-blur-xl"
-              />
+        <header className="flex items-center justify-between gap-3 px-4.5 pb-2 pt-4 border-b border-outline-variant/40">
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+            {icon && (
+              <span className={`grid size-8 shrink-0 place-items-center rounded-full ${iconTone}`}>
+                {icon}
+              </span>
+            )}
+            <div className="flex items-center gap-2">
+              <h2 className="text-headline-sm font-extrabold tracking-tight text-on-surface">{title}</h2>
+              {headerRight}
+            </div>
+            {subtitle && (
+              <span className="rounded-full bg-sale px-2.5 py-0.5 text-label-xs font-bold text-on-sale shadow-badge">
+                {subtitle}
+              </span>
+            )}
+          </div>
 
-              <div className="relative flex items-center justify-between gap-3">
-                <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-                  {icon && <span className="shrink-0 text-on-primary">{icon}</span>}
-                  <h2 className="text-headline-sm font-black italic tracking-tight text-on-primary">
-                    {title}
-                  </h2>
-                  {subtitle && (
-                    <span className="rounded-full bg-sale px-2.5 py-0.5 text-label-xs font-bold text-on-sale shadow-badge">
-                      {subtitle}
-                    </span>
-                  )}
-                </div>
+          {href && (
+            <Link
+              to={href}
+              className="flex shrink-0 items-center gap-0.5 text-label-sm font-semibold text-on-surface-variant transition-colors hover:text-primary"
+            >
+              Xem thêm
+              <ChevronRight size={15} strokeWidth={2.5} />
+            </Link>
+          )}
+        </header>
 
-                {href && (
-                  <Link
-                    to={href}
-                    className="flex shrink-0 items-center gap-0.5 text-label-sm font-bold text-on-primary transition-opacity hover:opacity-85"
-                  >
-                    Xem tất cả
-                    <ChevronRight size={15} strokeWidth={2.5} />
-                  </Link>
-                )}
-              </div>
-            </header>
-
-            {/* Kéo thẻ lên đè vào dải màu */}
-            <div className="relative -mt-12 px-3 pb-3.5">{body}</div>
-          </>
-        ) : (
-          <>
-            <header className="flex items-center justify-between gap-3 px-4.5 pb-2 pt-4 border-b border-outline-variant/40">
-              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
-                {icon && <span className="shrink-0 text-primary">{icon}</span>}
-                <div className="flex items-center gap-2">
-                  {title}
-                  {headerRight}
-                </div>
-              </div>
-
-              {href && (
-                <Link
-                  to={href}
-                  className="flex shrink-0 items-center gap-0.5 text-label-sm font-semibold text-on-surface-variant transition-colors hover:text-primary"
-                >
-                  Xem thêm
-                  <ChevronRight size={15} strokeWidth={2.5} />
-                </Link>
-              )}
-            </header>
-
-            <div className="p-3.5">{body}</div>
-          </>
-        )}
+        <div className="p-3.5">{body}</div>
       </div>
     </section>
   );
