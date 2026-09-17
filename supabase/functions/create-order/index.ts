@@ -254,6 +254,45 @@ async function buildItems(
     for (const o of options!) optionById.set(o.id, o);
   }
 
+  // ── Topping: id nào không tra được ở product_options thì tra tiếp ở
+  // topping_items. Nhóm topping dùng chung cho nhiều món nên không kiểm tra
+  // quyền gán bằng product_id như option lẻ, mà qua product_topping_groups.
+  const toppingById = new Map<string, { id: string; group_id: string; name: string; price_delta: number; is_available: boolean }>();
+  const toppingGroupById = new Map<string, { id: string; name: string }>();
+  const toppingGroupIdsByProduct = new Map<string, Set<string>>();
+
+  const unresolvedIds = optionIds.filter((id) => !optionById.has(id));
+  if (unresolvedIds.length > 0) {
+    const { data: toppings, error: tErr } = await db
+      .from("topping_items")
+      .select("id, group_id, name, price_delta, is_available")
+      .in("id", unresolvedIds);
+    if (tErr) throw tErr;
+    for (const t of toppings!) toppingById.set(t.id, t);
+
+    const toppingGroupIds = [...new Set(toppings!.map((t) => t.group_id))];
+    if (toppingGroupIds.length > 0) {
+      const { data: tGroups, error: tgErr } = await db
+        .from("topping_groups")
+        .select("id, name")
+        .in("id", toppingGroupIds);
+      if (tgErr) throw tgErr;
+      for (const g of tGroups!) toppingGroupById.set(g.id, g);
+
+      const { data: assigns, error: aErr } = await db
+        .from("product_topping_groups")
+        .select("product_id, topping_group_id")
+        .in("product_id", productIds)
+        .in("topping_group_id", toppingGroupIds);
+      if (aErr) throw aErr;
+      for (const a of assigns!) {
+        const set = toppingGroupIdsByProduct.get(a.product_id) ?? new Set<string>();
+        set.add(a.topping_group_id);
+        toppingGroupIdsByProduct.set(a.product_id, set);
+      }
+    }
+  }
+
   // ── Combo: tra combo + món con, validate còn bán được ───────────────────
   const comboIds = [...new Set(comboLines.map((i) => i.combo_id))];
   const comboById = new Map<string, { id: string; name: string; image_url: string | null; price: number; is_available: boolean }>();
@@ -362,23 +401,46 @@ async function buildItems(
 
     for (const optId of line.option_ids) {
       const opt = optionById.get(optId);
-      if (!opt) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
-      if (!opt.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn "${opt.name}" đang tạm hết.` };
 
-      const group = groupById.get(opt.group_id);
-      // Chặn ghép option của món khác vào món này.
-      if (!group || group.product_id !== line.product_id) {
+      if (opt) {
+        if (!opt.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn "${opt.name}" đang tạm hết.` };
+
+        const group = groupById.get(opt.group_id);
+        // Chặn ghép option của món khác vào món này.
+        if (!group || group.product_id !== line.product_id) {
+          return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
+        }
+
+        chosen.push({
+          group_id: group.id,
+          group_name: group.name,
+          option_id: opt.id,
+          option_name: opt.name,
+          price_delta: Number(opt.price_delta),
+        });
+        countByGroup.set(group.id, (countByGroup.get(group.id) ?? 0) + 1);
+        continue;
+      }
+
+      // Topping: không có ràng buộc bắt buộc/min/max nên không đếm countByGroup.
+      const topping = toppingById.get(optId);
+      if (!topping) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
+      if (!topping.is_available) {
+        return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn "${topping.name}" đang tạm hết.` };
+      }
+
+      const toppingGroup = toppingGroupById.get(topping.group_id);
+      if (!toppingGroup || !toppingGroupIdsByProduct.get(line.product_id)?.has(toppingGroup.id)) {
         return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
       }
 
       chosen.push({
-        group_id: group.id,
-        group_name: group.name,
-        option_id: opt.id,
-        option_name: opt.name,
-        price_delta: Number(opt.price_delta),
+        group_id: toppingGroup.id,
+        group_name: toppingGroup.name,
+        option_id: topping.id,
+        option_name: topping.name,
+        price_delta: Number(topping.price_delta),
       });
-      countByGroup.set(group.id, (countByGroup.get(group.id) ?? 0) + 1);
     }
 
     // Nhóm bắt buộc phải chọn đủ, và không vượt max_select.

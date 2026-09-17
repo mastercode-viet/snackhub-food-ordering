@@ -229,8 +229,26 @@ export async function fetchCartSync(
   for (const o of optionRes.data ?? []) snapshot.options[o.id] = o;
   for (const c of comboRes.data ?? []) snapshot.combos[c.id] = c;
 
+  // Giỏ hàng trộn lẫn id của product_options và topping_items trong cùng một
+  // mảng options. Id nào không phải option lẻ thì tra tiếp ở topping_items —
+  // bỏ qua bước này là mọi dòng có topping đều bị báo "option_gone".
+  const missingOptionIds = optionIds.filter((id) => !snapshot.options[id]);
+  if (missingOptionIds.length > 0) {
+    const { data, error } = await supabase
+      .from("topping_items")
+      .select("id, name, price_delta, is_available")
+      .in("id", missingOptionIds);
+    if (error) throw error;
+    for (const t of data ?? []) snapshot.options[t.id] = t;
+  }
+
   return snapshot;
 }
+
+/** Nhóm topping dùng chung, kèm các topping bên trong. */
+export type ToppingGroupWithItems = Tables<"topping_groups"> & {
+  topping_items: Tables<"topping_items">[];
+};
 
 /** Món kèm toàn bộ nhóm tùy chọn và các lựa chọn bên trong. */
 export type ProductDetail = Tables<"products"> & {
@@ -238,27 +256,46 @@ export type ProductDetail = Tables<"products"> & {
   product_option_groups: Array<
     Tables<"product_option_groups"> & { product_options: Tables<"product_options">[] }
   >;
+  /** Đã phẳng hoá khỏi bảng nối và sắp theo sort_order của phần gán. */
+  toppingGroups: ToppingGroupWithItems[];
+};
+
+type ProductDetailRow = Omit<ProductDetail, "toppingGroups"> & {
+  product_topping_groups: Array<{ sort_order: number; topping_groups: ToppingGroupWithItems | null }>;
 };
 
 export async function fetchProductBySlug(slug: string): Promise<ProductDetail | null> {
   const { data, error } = await supabase
     .from("products")
-    .select("*, categories(icon, name, slug), product_option_groups(*, product_options(*))")
+    .select(
+      "*, categories(icon, name, slug), product_option_groups(*, product_options(*)), product_topping_groups(sort_order, topping_groups(*, topping_items(*)))",
+    )
     .eq("slug", slug)
     .maybeSingle();
 
   if (error) throw error;
   if (!data) return null;
 
-  const detail = data as ProductDetail;
+  const row = data as ProductDetailRow;
 
   // PostgREST không sắp xếp được cấp lồng thứ hai — sắp ở client cho gọn.
-  detail.product_option_groups.sort((a, b) => a.sort_order - b.sort_order);
-  for (const group of detail.product_option_groups) {
+  row.product_option_groups.sort((a, b) => a.sort_order - b.sort_order);
+  for (const group of row.product_option_groups) {
     group.product_options.sort((a, b) => a.sort_order - b.sort_order);
   }
 
-  return detail;
+  const toppingGroups = row.product_topping_groups
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((link) => link.topping_groups)
+    .filter((group): group is ToppingGroupWithItems => group !== null);
+
+  for (const group of toppingGroups) {
+    group.topping_items.sort((a, b) => a.sort_order - b.sort_order);
+  }
+
+  const { product_topping_groups: _link, ...rest } = row;
+  return { ...rest, toppingGroups };
 }
 
 export async function fetchProducts(params: {
@@ -288,12 +325,35 @@ export async function fetchProducts(params: {
   return data as ProductWithCategory[];
 }
 
-/** Lấy trạng thái hiện tại của các lựa chọn — dùng khi mua lại đơn cũ. */
-export async function fetchOptionsByIds(ids: string[]): Promise<Tables<"product_options">[]> {
+/** Chỉ những cột mà mua lại đơn cần — product_options và topping_items trùng nhau đúng bộ này. */
+export type SelectedOption = Pick<
+  Tables<"product_options">,
+  "id" | "group_id" | "name" | "price_delta" | "is_available"
+>;
+
+/**
+ * Lấy trạng thái hiện tại của các lựa chọn — dùng khi mua lại đơn cũ.
+ * Snapshot đơn cũ trộn lẫn id của product_options và topping_items, nên phải
+ * tra cả hai; thiếu vế topping là mọi đơn có topping đều bị bỏ qua khi mua lại.
+ */
+export async function fetchOptionsByIds(ids: string[]): Promise<SelectedOption[]> {
   if (ids.length === 0) return [];
-  const { data, error } = await supabase.from("product_options").select("*").in("id", ids);
+
+  const columns = "id, group_id, name, price_delta, is_available";
+  const { data, error } = await supabase.from("product_options").select(columns).in("id", ids);
   if (error) throw error;
-  return data;
+
+  const found = data ?? [];
+  const missing = ids.filter((id) => !found.some((o) => o.id === id));
+  if (missing.length === 0) return found;
+
+  const { data: toppings, error: tErr } = await supabase
+    .from("topping_items")
+    .select(columns)
+    .in("id", missing);
+  if (tErr) throw tErr;
+
+  return [...found, ...(toppings ?? [])];
 }
 
 // ── Combo (gộp món) ──────────────────────────────────────────────────────
