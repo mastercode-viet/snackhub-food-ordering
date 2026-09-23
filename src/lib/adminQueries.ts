@@ -75,10 +75,10 @@ export async function deleteToppingItem(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export type AdminProduct = Pick<Tables<"products">, "id" | "name">;
+export type AdminProduct = Pick<Tables<"products">, "id" | "name" | "base_price">;
 
 export async function fetchAdminProducts(): Promise<AdminProduct[]> {
-  const { data, error } = await supabase.from("products").select("id, name").order("name");
+  const { data, error } = await supabase.from("products").select("id, name, base_price").order("name");
   if (error) throw error;
   return data;
 }
@@ -182,7 +182,11 @@ export async function cancelOrderAsAdmin(id: string, reason: string): Promise<vo
   if (error) throw error;
 }
 
-/** Ghi nhận đã thu tiền (chủ yếu cho COD). paid_at do trigger đóng dấu. */
+/**
+ * Ghi nhận đã thu tiền (chủ yếu cho COD). paid_at do trigger đóng dấu; với
+ * đơn COD, trigger cũng tự gắn collected_by_staff_id = auth.uid() của người
+ * gọi (nếu người đó có hồ sơ staff_profiles).
+ */
 export async function markOrderPaid(id: string): Promise<void> {
   const { error } = await supabase.from("orders").update({ payment_status: "paid" }).eq("id", id);
   if (error) throw error;
@@ -202,9 +206,17 @@ export type DailyStat = {
   revenue: number;
   total_discount: number;
   avg_order_value: number;
+  cod_revenue: number;
+  payos_revenue: number;
+  sla_breached_orders: number;
 };
 
 export type TopProduct = { product_name: string; quantity: number; revenue: number };
+
+export type TopCombo = { combo_id: string; combo_name: string; quantity: number; revenue: number };
+
+/** 1 ô trong lưới heatmap Thứ×Giờ. `dow`: 0 = Chủ nhật ... 6 = Thứ 7 (theo Date#getDay()). */
+export type HeatmapCell = { dow: number; hour: number; total_orders: number };
 
 function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -223,6 +235,9 @@ const EMPTY_DAY = {
   revenue: 0,
   total_discount: 0,
   avg_order_value: 0,
+  cod_revenue: 0,
+  payos_revenue: 0,
+  sla_breached_orders: 0,
 };
 
 /**
@@ -251,6 +266,9 @@ export async function fetchDailyStats(days = 14): Promise<DailyStat[]> {
       revenue: Number(r.revenue),
       total_discount: Number(r.total_discount),
       avg_order_value: Number(r.avg_order_value),
+      cod_revenue: Number(r.cod_revenue),
+      payos_revenue: Number(r.payos_revenue),
+      sla_breached_orders: Number(r.sla_breached_orders),
     });
   }
 
@@ -288,6 +306,105 @@ export async function fetchTopProducts(days = 14, limit = 8): Promise<TopProduct
   return [...byName.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
 }
 
+/** Combo bán chạy — cùng khuôn view day-grain như admin_top_products. */
+export async function fetchTopCombos(days = 14, limit = 8): Promise<TopCombo[]> {
+  const { data, error } = await supabase
+    .from("admin_top_combos")
+    .select("combo_id, combo_name, total_quantity, total_revenue")
+    .gte("day", daysAgoISO(days));
+
+  if (error) throw error;
+
+  const byId = new Map<string, TopCombo>();
+  for (const row of data ?? []) {
+    const id = row.combo_id as string;
+    const cur =
+      byId.get(id) ?? { combo_id: id, combo_name: row.combo_name as string, quantity: 0, revenue: 0 };
+    cur.quantity += Number(row.total_quantity);
+    cur.revenue += Number(row.total_revenue);
+    byId.set(id, cur);
+  }
+
+  return [...byId.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
+}
+
+/**
+ * Gộp view day-grain (ngày, giờ) thành lưới Thứ×Giờ trong khoảng ngày đang
+ * xem. `day` view đã quy đổi về giờ VN nên tính dow trực tiếp từ chuỗi ngày
+ * là đúng, không lệch múi giờ trình duyệt.
+ */
+export async function fetchHeatmap(days = 30): Promise<HeatmapCell[]> {
+  const { data, error } = await supabase
+    .from("admin_hourly_heatmap")
+    .select("day, hour, total_orders")
+    .gte("day", daysAgoISO(days));
+
+  if (error) throw error;
+
+  const grid = new Map<string, number>();
+  for (const row of data ?? []) {
+    const day = row.day as string;
+    const hour = Number(row.hour);
+    const dow = new Date(`${day}T00:00:00`).getDay();
+    const key = `${dow}-${hour}`;
+    grid.set(key, (grid.get(key) ?? 0) + Number(row.total_orders));
+  }
+
+  const cells: HeatmapCell[] = [];
+  for (let dow = 0; dow < 7; dow++) {
+    for (let hour = 0; hour < 24; hour++) {
+      cells.push({ dow, hour, total_orders: grid.get(`${dow}-${hour}`) ?? 0 });
+    }
+  }
+  return cells;
+}
+
+export type RevenueBucket = {
+  key: string;
+  revenue: number;
+  completed_orders: number;
+  total_orders: number;
+};
+
+function mondayOf(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  const dow = d.getDay();
+  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return isoDay(d);
+}
+
+/**
+ * Gộp dữ liệu ngày (từ fetchDailyStats) thành tuần (mốc Thứ 2 đầu tuần) hoặc
+ * tháng (YYYY-MM) để vẽ biểu đồ theo Ngày/Tuần/Tháng — fetchDailyStats luôn
+ * trả day-grain, việc gộp hiển thị tách riêng để không phải thêm tham số
+ * granularity vào tầng fetch.
+ */
+export function bucketDailyStats(
+  daily: DailyStat[],
+  granularity: "day" | "week" | "month",
+): RevenueBucket[] {
+  if (granularity === "day") {
+    return daily.map((d) => ({
+      key: d.day,
+      revenue: d.revenue,
+      completed_orders: d.completed_orders,
+      total_orders: d.total_orders,
+    }));
+  }
+
+  const byKey = new Map<string, RevenueBucket>();
+  for (const d of daily) {
+    const key = granularity === "week" ? mondayOf(d.day) : d.day.slice(0, 7);
+    const cur = byKey.get(key) ?? { key, revenue: 0, completed_orders: 0, total_orders: 0 };
+    cur.revenue += d.revenue;
+    cur.completed_orders += d.completed_orders;
+    cur.total_orders += d.total_orders;
+    byKey.set(key, cur);
+  }
+
+  return [...byKey.values()].sort((a, b) => a.key.localeCompare(b.key));
+}
+
 // ── Danh mục ─────────────────────────────────────────────────────────────
 
 export type AdminCategory = Tables<"categories">;
@@ -306,6 +423,7 @@ export async function createCategory(input: {
   name: string;
   slug: string;
   icon: string | null;
+  image_url: string | null;
   sort_order: number;
 }): Promise<void> {
   const { error } = await supabase.from("categories").insert(input);
@@ -314,7 +432,9 @@ export async function createCategory(input: {
 
 export async function updateCategory(
   id: string,
-  patch: Partial<Pick<Tables<"categories">, "name" | "slug" | "icon" | "sort_order" | "is_active">>,
+  patch: Partial<
+    Pick<Tables<"categories">, "name" | "slug" | "icon" | "image_url" | "sort_order" | "is_active">
+  >,
 ): Promise<void> {
   const { error } = await supabase.from("categories").update(patch).eq("id", id);
   if (error) throw error;
@@ -341,7 +461,8 @@ export type ProductFormValues = {
   description: string | null;
   category_id: string | null;
   base_price: number;
-  discount_percent: number;
+  discount_type: "percent" | "fixed";
+  discount_value: number;
   image_url: string | null;
   is_available: boolean;
   is_featured: boolean;
@@ -429,3 +550,214 @@ export async function updateSettings(
   const { error } = await supabase.from("store_settings").update(patch).eq("id", 1);
   if (error) throw error;
 }
+
+// ── Banner trang chủ ─────────────────────────────────────────────────────
+
+export type AdminBanner = Tables<"banners">;
+
+export type BannerFormValues = {
+  image_url: string;
+  link_url: string | null;
+  sort_order: number;
+  is_active: boolean;
+};
+
+/** Cả banner đã tắt (policy banners_public_read cho Admin thấy hết). */
+export async function fetchAdminBanners(): Promise<AdminBanner[]> {
+  const { data, error } = await supabase
+    .from("banners")
+    .select("*")
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function createBanner(values: BannerFormValues): Promise<void> {
+  const { error } = await supabase.from("banners").insert(values);
+  if (error) throw error;
+}
+
+export async function updateBanner(
+  id: string,
+  patch: Partial<BannerFormValues>,
+): Promise<void> {
+  const { error } = await supabase.from("banners").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteBanner(id: string): Promise<void> {
+  const { error } = await supabase.from("banners").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Bật/tắt banner — thao tác nhanh ngay trên danh sách, không cần mở form. */
+export async function setBannerActive(id: string, isActive: boolean): Promise<void> {
+  const { error } = await supabase.from("banners").update({ is_active: isActive }).eq("id", id);
+  if (error) throw error;
+}
+
+// ── Mã giảm giá (Khuyến mãi) ─────────────────────────────────────────────
+
+export type AdminDiscountCode = Tables<"discount_codes">;
+
+export type DiscountCodeFormValues = {
+  code: string;
+  description: string | null;
+  type: "percent" | "fixed";
+  value: number;
+  min_order_amount: number;
+  max_discount_amount: number | null;
+  max_uses: number | null;
+  starts_at: string | null;
+  expires_at: string | null;
+  is_active: boolean;
+};
+
+export async function fetchAdminDiscountCodes(): Promise<AdminDiscountCode[]> {
+  const { data, error } = await supabase
+    .from("discount_codes")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function createDiscountCode(values: DiscountCodeFormValues): Promise<void> {
+  const { error } = await supabase.from("discount_codes").insert({
+    ...values,
+    code: values.code.trim().toUpperCase(),
+  });
+  if (error) throw error;
+}
+
+export async function updateDiscountCode(
+  id: string,
+  patch: Partial<DiscountCodeFormValues>,
+): Promise<void> {
+  const formattedPatch = { ...patch };
+  if (formattedPatch.code) {
+    formattedPatch.code = formattedPatch.code.trim().toUpperCase();
+  }
+  const { error } = await supabase.from("discount_codes").update(formattedPatch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteDiscountCode(id: string): Promise<void> {
+  const { error } = await supabase.from("discount_codes").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function setDiscountCodeActive(id: string, isActive: boolean): Promise<void> {
+  const { error } = await supabase.from("discount_codes").update({ is_active: isActive }).eq("id", id);
+  if (error) throw error;
+}
+
+// ── Quản lý Combo ────────────────────────────────────────────────────────
+
+export type AdminComboItem = Tables<"combo_items"> & {
+  products: Pick<Tables<"products">, "id" | "name" | "base_price" | "image_url" | "is_available"> | null;
+};
+
+export type AdminCombo = Tables<"combos"> & {
+  combo_items: AdminComboItem[];
+};
+
+export type ComboFormValues = {
+  name: string;
+  slug: string;
+  description: string | null;
+  price: number;
+  image_url: string | null;
+  is_available: boolean;
+  is_featured: boolean;
+  sort_order: number;
+};
+
+export type ComboItemInput = {
+  product_id: string;
+  quantity: number;
+  sort_order?: number;
+};
+
+export async function fetchAdminCombos(): Promise<AdminCombo[]> {
+  const { data, error } = await supabase
+    .from("combos")
+    .select("*, combo_items(*, products(id, name, base_price, image_url, is_available))")
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data as unknown as AdminCombo[];
+}
+
+export async function createCombo(
+  combo: ComboFormValues,
+  items: ComboItemInput[],
+): Promise<void> {
+  const { data: newCombo, error: comboErr } = await supabase
+    .from("combos")
+    .insert(combo)
+    .select("id")
+    .single();
+
+  if (comboErr) throw comboErr;
+
+  if (items.length > 0) {
+    const { error: itemsErr } = await supabase.from("combo_items").insert(
+      items.map((item, idx) => ({
+        combo_id: newCombo.id,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        sort_order: item.sort_order ?? idx,
+      })),
+    );
+    if (itemsErr) throw itemsErr;
+  }
+}
+
+export async function updateCombo(
+  id: string,
+  combo: Partial<ComboFormValues>,
+  items?: ComboItemInput[],
+): Promise<void> {
+  const { error: comboErr } = await supabase.from("combos").update(combo).eq("id", id);
+  if (comboErr) throw comboErr;
+
+  if (items !== undefined) {
+    // Thay thế toàn bộ combo_items của combo
+    const { error: delErr } = await supabase.from("combo_items").delete().eq("combo_id", id);
+    if (delErr) throw delErr;
+
+    if (items.length > 0) {
+      const { error: insErr } = await supabase.from("combo_items").insert(
+        items.map((item, idx) => ({
+          combo_id: id,
+          product_id: item.product_id,
+          quantity: item.quantity,
+          sort_order: item.sort_order ?? idx,
+        })),
+      );
+      if (insErr) throw insErr;
+    }
+  }
+}
+
+export async function deleteCombo(id: string): Promise<void> {
+  // combo_items có FK ON DELETE CASCADE nên xóa combo sẽ tự xóa combo_items
+  const { error } = await supabase.from("combos").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function setComboAvailability(id: string, isAvailable: boolean): Promise<void> {
+  const { error } = await supabase.from("combos").update({ is_available: isAvailable }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function setComboFeatured(id: string, isFeatured: boolean): Promise<void> {
+  const { error } = await supabase.from("combos").update({ is_featured: isFeatured }).eq("id", id);
+  if (error) throw error;
+}
+
