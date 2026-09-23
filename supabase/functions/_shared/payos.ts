@@ -90,6 +90,28 @@ export async function createPaymentLink(params: {
   };
 }
 
+/**
+ * Huỷ link thanh toán. Coi 101 (link không tồn tại) và 102 (link đã đóng) là
+ * thành công — kết quả cuối cùng vẫn là "link này không thu tiền được nữa".
+ */
+export async function cancelPaymentLink(paymentLinkId: string, reason: string): Promise<void> {
+  const res = await fetch(`${PAYOS_API}/${paymentLinkId}/cancel`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-client-id": clientId(),
+      "x-api-key": apiKey(),
+    },
+    body: JSON.stringify({ cancellationReason: reason }),
+  });
+
+  const body = await res.json().catch(() => null);
+  const code = body?.code;
+  if (!res.ok || (code !== "00" && code !== "101" && code !== "102")) {
+    throw new Error(`PayOS huỷ link thất bại: ${code ?? res.status} ${body?.desc ?? ""}`);
+  }
+}
+
 export interface WebhookBody {
   code: string;
   desc: string;

@@ -1,9 +1,13 @@
 // POST /functions/v1/payos-webhook   (verify_jwt = false)
 //
-// Ba lớp bảo vệ, theo đúng thứ tự:
+// Năm lớp bảo vệ, theo đúng thứ tự:
 //   1. Verify HMAC-SHA256 — chưa xác thực chữ ký thì KHÔNG đọc gì trong payload.
 //   2. Chốt idempotent ở DB: event_hash UNIQUE, PayOS gửi lại lần 2 sẽ trượt insert.
 //   3. Kiểm tra trạng thái đơn trước khi cập nhật — đơn đã 'paid' thì bỏ qua.
+//   4. Đối chiếu số tiền nhận được với total_amount của đơn.
+//   5. Update paid dùng .neq('payment_status','paid') thay vì .eq('pending') —
+//      webhook LUÔN thắng dù cancel-payment (khách bấm back) đã lật đơn sang
+//      'cancelled' trước đó, và mở lại đơn về pending_confirmation khi ghi paid.
 //
 // Luôn trả 200 cho các trường hợp "đã xử lý rồi" để PayOS ngừng retry.
 
@@ -54,7 +58,7 @@ Deno.serve(async (req) => {
     // ── 3. Kiểm tra trạng thái đơn trước khi cập nhật ───────────────────────
     const { data: order, error: orderErr } = await db
       .from("orders")
-      .select("id, status, payment_status, discount_code_id")
+      .select("id, order_code, status, payment_status, discount_code_id, total_amount")
       .eq("payos_order_code", payosOrderCode)
       .maybeSingle();
     if (orderErr) throw orderErr;
@@ -69,16 +73,48 @@ Deno.serve(async (req) => {
       return ok("already paid");
     }
 
+    // Chữ ký chỉ chứng minh event ĐẾN TỪ PayOS, không chứng minh khách đã trả
+    // đủ. Với VietQR khách có thể chuyển thiếu vào tài khoản ảo, nên phải đối
+    // chiếu lại số tiền: thiếu thì không ghi 'paid', nhưng cũng KHÔNG tự huỷ
+    // (tiền thật đã vào) — treo lại cho admin xử lý tay.
+    const expectedAmount = Math.round(Number(order.total_amount));
+    const receivedAmount = Number(data.amount);
+
+    if (data.code === "00" && !(receivedAmount >= expectedAmount)) {
+      await markProcessed(
+        db,
+        hash,
+        order.id,
+        `amount_mismatch: nhận ${data.amount}, cần ${expectedAmount}`,
+      );
+      console.warn("payos_webhook_amount_mismatch", { payosOrderCode, receivedAmount, expectedAmount });
+      return ok("amount mismatch");
+    }
+
     const paid = data.code === "00";
 
     if (paid) {
-      // Điều kiện payment_status='pending' làm cho update này an toàn khi có
-      // hai webhook chạy song song: chỉ một request khớp và ghi được.
+      // `.neq('payment_status','paid')` (thay vì chỉ khớp 'pending') là chốt đua
+      // THẬT: cancel-payment (khách bấm back) hoặc chính webhook (nhánh thất bại
+      // bên dưới) có thể đã lật payment_status sang 'failed' và status sang
+      // 'cancelled' TRƯỚC KHI event 'paid' này tới nơi — tiền đã về tài khoản
+      // quán thì webhook phải luôn thắng, không được để đơn kẹt ở trạng thái huỷ
+      // trong khi tiền đã nhận. Đồng thời mở lại status + xoá dấu vết huỷ, vì với
+      // luồng payos, payment_status khác 'paid' chỉ có thể đi kèm
+      // status IN ('pending_confirmation','cancelled') — không có nhánh nào khác
+      // đẩy đơn payos đi xa hơn khi chưa paid (Admin UI khoá nút duyệt đơn qua
+      // blockedUnpaidPayos, pg_cron chỉ huỷ đơn còn pending_confirmation).
       const { data: updated, error: upErr } = await db
         .from("orders")
-        .update({ payment_status: "paid" }) // paid_at do trigger DB tự đóng dấu
+        .update({
+          payment_status: "paid", // paid_at do trigger DB tự đóng dấu
+          status: "pending_confirmation",
+          cancelled_at: null,
+          cancelled_by: null,
+          cancel_reason: null,
+        })
         .eq("id", order.id)
-        .eq("payment_status", "pending")
+        .neq("payment_status", "paid")
         .select("id")
         .maybeSingle();
       if (upErr) throw upErr;
@@ -86,6 +122,8 @@ Deno.serve(async (req) => {
         await markProcessed(db, hash, order.id, null);
         return ok("already handled concurrently");
       }
+
+      await broadcastPaid(order.order_code, expectedAmount);
     } else {
       // Thanh toán thất bại / khách bấm hủy trên trang PayOS.
       if (order.status === "pending_confirmation") {
@@ -119,6 +157,41 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ code: "99", desc: "internal error" }), { status: 500 });
   }
 });
+
+/**
+ * Báo cho trang QR của khách biết tiền đã về, không đợi vòng poll.
+ *
+ * Dùng Broadcast chứ không phải Postgres Changes: bảng `orders` không có policy
+ * nào cho `anon`, nên khách vãng lai không thể nhận thay đổi dòng qua RLS — mở
+ * quyền SELECT cho anon thì lộ tên/SĐT/địa chỉ của mọi khách. Tên kênh mang
+ * order_code, đúng mô hình "biết mã đơn mới xem được đơn" đang dùng ở chỗ khác.
+ *
+ * Lỗi ở đây KHÔNG được làm hỏng webhook — trang QR còn vòng poll dự phòng.
+ */
+async function broadcastPaid(orderCode: string, amount: number): Promise<void> {
+  try {
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    await fetch(`${Deno.env.get("SUPABASE_URL")}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: `order:${orderCode}`,
+            event: "paid",
+            payload: { order_code: orderCode, amount },
+          },
+        ],
+      }),
+    });
+  } catch (e) {
+    console.warn("payos_broadcast_failed", e);
+  }
+}
 
 function ok(desc: string): Response {
   return new Response(JSON.stringify({ code: "00", desc }), {

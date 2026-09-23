@@ -60,9 +60,6 @@ export type CreateOrderPayload = {
   customer_name: string;
   customer_phone: string;
   building: string;
-  floor?: string;
-  room?: string;
-  class_name?: string;
   delivery_note?: string;
   payment_method: "cod" | "payos";
   discount_code?: string;
@@ -84,4 +81,32 @@ export type CreateOrderResult = {
 
 export function createOrder(payload: CreateOrderPayload): Promise<CreateOrderResult> {
   return callFunction<CreateOrderResult>("create-order", payload);
+}
+
+export type CancelPaymentResult = {
+  cancelled: boolean;
+  /** Vì sao không huỷ: PAID (khách vừa trả xong) | NOT_PENDING | RACED. */
+  reason?: "PAID" | "NOT_PENDING" | "RACED";
+};
+
+/** Khách rời trang QR — huỷ link PayOS và đóng đơn. */
+export function cancelPayment(orderCode: string): Promise<CancelPaymentResult> {
+  return callFunction<CancelPaymentResult>("cancel-payment", { order_code: orderCode });
+}
+
+/**
+ * Bản dùng trong `beforeunload`. `keepalive` giữ request sống khi tab đang
+ * đóng — sendBeacon không dùng được vì không gắn được header apikey.
+ */
+export function cancelPaymentOnUnload(orderCode: string): void {
+  void fetch(`${functionsUrl}/cancel-payment`, {
+    method: "POST",
+    keepalive: true,
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.VITE_SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${env.VITE_SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({ order_code: orderCode }),
+  }).catch(() => {});
 }

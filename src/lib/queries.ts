@@ -98,6 +98,7 @@ export type OrderView = {
   total_amount: number;
   discount_code: string | null;
   payos_checkout_url: string | null;
+  payos_qr_code: string | null;
   cancelled_at: string | null;
   cancel_reason: string | null;
   completed_at: string | null;
@@ -124,6 +125,31 @@ export async function fetchOrderByCode(code: string): Promise<OrderView> {
     throw error;
   }
   return data as unknown as OrderView;
+}
+
+/** "2026-09-01".."2026-09-20" (yyyy-mm-dd) hoặc "all" — bộ lọc khoảng ngày cho lịch sử đơn của khách. */
+export type OrderDateRange = "all" | { from: string; to: string };
+
+/** true nếu mốc thời gian ISO rơi trong range (bao gồm cả ngày `to`, tới 23:59:59.999). */
+export function isWithinOrderDateRange(whenIso: string, range: OrderDateRange): boolean {
+  if (range === "all") return true;
+  const t = new Date(whenIso).getTime();
+  const fromMs = new Date(`${range.from}T00:00:00`).getTime();
+  const toMs = new Date(`${range.to}T23:59:59.999`).getTime();
+  return t >= fromMs && t <= toMs;
+}
+
+/**
+ * Lọc đơn theo khoảng ngày (created_at) trên TẬP MÃ ĐƠN khách đã có quyền tra
+ * (order_code) — KHÔNG có endpoint lọc theo customer_phone: RLS `orders`
+ * không cấp SELECT cho anon, và số điện thoại không đủ "bí mật" để làm khoá
+ * phân quyền xem đơn (khác order_code — gen_random_uuid(), chỉ người đặt
+ * biết). gte/lte áp dụng phía client trên kết quả get_order_by_code của từng
+ * mã đã được phép xem, không mở thêm quyền truy vấn hàng loạt theo SĐT.
+ */
+export async function fetchOrdersInRange(codes: string[], range: OrderDateRange): Promise<OrderView[]> {
+  const results = await Promise.all(codes.map((code) => fetchOrderByCode(code).catch(() => null)));
+  return results.filter((o): o is OrderView => o !== null && isWithinOrderDateRange(o.created_at, range));
 }
 
 /** Chỉ thành công khi đơn còn ở trạng thái "Chờ xác nhận" — DB quyết định. */
@@ -184,7 +210,10 @@ export async function fetchSuggestions(
 export type CartSyncSnapshot = {
   products: Record<
     string,
-    Pick<Tables<"products">, "id" | "name" | "base_price" | "discount_percent" | "is_available">
+    Pick<
+      Tables<"products">,
+      "id" | "name" | "base_price" | "discount_type" | "discount_value" | "is_available"
+    >
   >;
   options: Record<string, Pick<Tables<"product_options">, "id" | "name" | "price_delta" | "is_available">>;
   combos: Record<string, Pick<Tables<"combos">, "id" | "name" | "price" | "is_available">>;
@@ -207,7 +236,7 @@ export async function fetchCartSync(
     productIds.length > 0
       ? supabase
           .from("products")
-          .select("id, name, base_price, discount_percent, is_available")
+          .select("id, name, base_price, discount_type, discount_value, is_available")
           .in("id", productIds)
       : Promise.resolve({ data: [], error: null }),
     optionIds.length > 0
@@ -372,19 +401,6 @@ export type ComboWithItems = Tables<"combos"> & {
   combo_items: Array<{ quantity: number; products: { id: string; name: string } | null }>;
 };
 
-/** Combo đang bật `is_featured` — dùng cho banner đầu trang chủ. */
-export async function fetchFeaturedCombos(): Promise<ComboWithItems[]> {
-  const { data, error } = await supabase
-    .from("combos")
-    .select("*, combo_items(quantity, products(id, name))")
-    .eq("is_available", true)
-    .eq("is_featured", true)
-    .order("sort_order");
-
-  if (error) throw error;
-  return data as ComboWithItems[];
-}
-
 /** Toàn bộ combo đang bán — dùng cho section "Ăn thả ga không lo về giá". */
 export async function fetchCombos(): Promise<ComboWithItems[]> {
   const { data, error } = await supabase
@@ -402,6 +418,54 @@ export async function fetchCombos(): Promise<ComboWithItems[]> {
 export async function fetchCombosByIds(ids: string[]): Promise<Tables<"combos">[]> {
   if (ids.length === 0) return [];
   const { data, error } = await supabase.from("combos").select("*").in("id", ids);
+  if (error) throw error;
+  return data;
+}
+
+/** Combo cho màn chi tiết — kèm ảnh + giá gốc từng món con để hiển thị mức tiết kiệm. */
+export type ComboDetail = Tables<"combos"> & {
+  combo_items: Array<{
+    quantity: number;
+    products: { id: string; name: string; image_url: string | null; base_price: number } | null;
+  }>;
+};
+
+/**
+ * Không lọc `is_available` (khác `fetchCombos`) — giống `fetchProductBySlug`,
+ * để màn chi tiết còn hiển thị được trạng thái "tạm hết hàng" thay vì 404.
+ */
+export async function fetchComboBySlug(slug: string): Promise<ComboDetail | null> {
+  const { data, error } = await supabase
+    .from("combos")
+    .select("*, combo_items(quantity, products(id, name, image_url, base_price))")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as ComboDetail | null;
+}
+
+// ── Banner trang chủ ─────────────────────────────────────────────────────
+
+/** Số banner tối đa kéo về — dải cuộn ngang, nhiều hơn thế thì không ai lướt hết. */
+const BANNER_LIMIT = 10;
+
+/**
+ * Banner đang bật, theo thứ tự Admin sắp.
+ *
+ * RLS đã lọc `is_active` (policy banners_public_read), nhưng vẫn `.eq` lại ở
+ * đây: Admin đăng nhập cũng đọc chính hàm này khi xem trang chủ, mà policy cho
+ * Admin thấy cả banner đã tắt — không lọc thì quán tưởng banner tắt vẫn đang chạy.
+ */
+export async function fetchActiveBanners(): Promise<Tables<"banners">[]> {
+  const { data, error } = await supabase
+    .from("banners")
+    .select("*")
+    .eq("is_active", true)
+    .order("sort_order")
+    .order("created_at", { ascending: false })
+    .limit(BANNER_LIMIT);
+
   if (error) throw error;
   return data;
 }

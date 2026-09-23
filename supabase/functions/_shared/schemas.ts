@@ -21,6 +21,9 @@ export const phoneSchema = z
   .trim()
   .regex(VN_PHONE_PATTERN, "Số di động Việt Nam gồm 10 số, ví dụ 0912345678");
 
+/** PHẢI khớp với BUILDINGS trong src/lib/checkoutSchema.ts. */
+export const BUILDINGS = ["A", "B", "Khuôn viên"] as const;
+
 /**
  * Hai loại dòng giỏ hàng, phân biệt bằng `kind`:
  *   - "product": món lẻ, có thể có option tuỳ biến (như trước).
@@ -52,14 +55,16 @@ export const cartItemSchema = z.discriminatedUnion("kind", [
 export const createOrderSchema = z.object({
   customer_name: z.string().trim().min(1).max(100),
   customer_phone: phoneSchema,
-  building: z.string().trim().min(1).max(50),
-  floor: z.string().trim().max(20).optional(),
-  room: z.string().trim().max(20).optional(),
-  class_name: z.string().trim().max(50).optional(),
+  // Chỉ 3 điểm giao, và luôn giao ở tầng 1 — không còn nhận tầng/phòng/lớp.
+  building: z.enum(BUILDINGS),
   delivery_note: z.string().trim().max(500).optional(),
   payment_method: z.enum(["cod", "payos"]),
   discount_code: z.string().trim().max(50).optional(),
   items: z.array(cartItemSchema).min(1).max(50),
+});
+
+export const cancelPaymentSchema = z.object({
+  order_code: z.string().trim().min(3).max(20),
 });
 
 export const applyDiscountSchema = z.object({
@@ -68,7 +73,21 @@ export const applyDiscountSchema = z.object({
   subtotal: z.number().min(0).max(100_000_000),
 });
 
+/** Chỉ superadmin gọi được (create-staff-account tự kiểm tra is_admin() của caller). */
+export const createStaffAccountSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(255),
+  // Auth Supabase mặc định yêu cầu tối thiểu 6 ký tự — nâng lên 8 vì đây là
+  // tài khoản admin tự đặt hộ nhân viên, không phải khách vãng lai.
+  password: z.string().min(8).max(72),
+  full_name: z.string().trim().min(1).max(100),
+  phone: phoneSchema.optional(),
+  bank_account: z.string().trim().max(100).optional(),
+  role: z.enum(["superadmin", "staff"]),
+  hourly_rate: z.number().min(0).max(1_000_000).optional(),
+});
+
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 export type CartItemInput = z.infer<typeof cartItemSchema>;
 export type ProductCartItemInput = z.infer<typeof productCartItemSchema>;
 export type ComboCartItemInput = z.infer<typeof comboCartItemSchema>;
+export type CreateStaffAccountInput = z.infer<typeof createStaffAccountSchema>;

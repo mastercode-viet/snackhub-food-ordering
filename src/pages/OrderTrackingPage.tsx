@@ -179,10 +179,7 @@ export default function OrderTrackingPage() {
     .filter(Boolean)
     .join(" · ");
 
-  const waitingPayment =
-    order.payment_method === "payos" &&
-    order.payment_status === "pending" &&
-    order.payos_checkout_url;
+  const waitingPayment = order.payment_method === "payos" && order.payment_status === "pending";
 
   return (
     <div className="min-h-dvh bg-background pb-12 pt-safe">
@@ -197,14 +194,16 @@ export default function OrderTrackingPage() {
               <ArrowLeft size={20} strokeWidth={2.2} />
             </Link>
           </motion.div>
-          <h1 className="flex-1 truncate text-headline-sm font-bold text-on-surface">Theo dõi đơn</h1>
           <motion.button
-            whileTap={{ scale: 0.85, rotate: 180 }}
-            transition={{ duration: 0.3 }}
+            whileTap={{ scale: 0.88 }}
+            whileHover={{ scale: 1.08 }}
             type="button"
-            onClick={() => void load(true)}
+            onClick={async () => {
+              await load(true);
+              toast.success("Đã làm mới thông tin đơn hàng");
+            }}
             aria-label="Cập nhật"
-            className="grid size-10 shrink-0 place-items-center rounded-full bg-surface-container-lowest text-on-surface-variant border border-outline-variant shadow-card hover:text-on-surface"
+            className="grid size-10 shrink-0 place-items-center rounded-full bg-surface-container-lowest text-on-surface-variant border border-outline-variant shadow-card hover:text-on-surface transition-colors active:rotate-180"
           >
             <RefreshCw size={17} strokeWidth={2.2} />
           </motion.button>
@@ -249,18 +248,19 @@ export default function OrderTrackingPage() {
             <OrderStatusBadge status={order.status} />
           </div>
 
-          {waitingPayment && (
-            <motion.a
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.96 }}
-              href={order.payos_checkout_url!}
-              className="mt-4 flex h-12 items-center justify-center gap-2 rounded-full bg-inverse-surface text-label-lg font-bold text-inverse-on-surface shadow-cta"
+        </section>
+
+        {waitingPayment && (
+          <motion.div whileTap={{ scale: 0.98 }}>
+            <Link
+              to={`/thanh-toan/${order.order_code}`}
+              className="flex h-12 items-center justify-center gap-2 rounded-full bg-inverse-surface text-label-lg font-bold text-inverse-on-surface shadow-cta"
             >
               <QrCode size={18} strokeWidth={2.4} />
-              Thanh toán ngay
-            </motion.a>
-          )}
-        </section>
+              Thanh toán ngay · {formatVnd(order.total_amount)}
+            </Link>
+          </motion.div>
+        )}
 
         <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
           <h2 className="mb-4 text-headline-sm font-bold text-on-surface">Hành trình đơn hàng</h2>
@@ -415,7 +415,9 @@ export default function OrderTrackingPage() {
           <ShieldCheck size={16} className="text-secondary" strokeWidth={2.4} />
           {order.can_cancel
             ? "Chỉ huỷ được khi đơn còn Chờ xác nhận"
-            : "Đơn đã qua bước xác nhận nên không tự huỷ được"}
+            : order.payment_status === "paid"
+              ? "Đơn đã thanh toán — nhắn quán nếu bạn cần hoàn tiền"
+              : "Đơn đã qua bước xác nhận nên không tự huỷ được"}
         </p>
       </div>
     </div>

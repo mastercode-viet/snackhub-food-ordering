@@ -12,6 +12,28 @@ export function adminClient(): SupabaseClient {
   );
 }
 
+/**
+ * Client chạy với JWT của CHÍNH người gọi (không phải service role) — chỉ
+ * dùng để xác thực danh tính qua RLS (`is_admin()`/`is_staff()`), KHÔNG bao
+ * giờ dùng để đọc/ghi dữ liệu (mọi ghi dữ liệu thật đi qua adminClient()).
+ */
+function callerClient(req: Request): SupabaseClient {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    {
+      global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
+      auth: { persistSession: false, autoRefreshToken: false },
+    },
+  );
+}
+
+/** true nếu JWT đính kèm request thuộc về 1 superadmin — cùng is_admin() mà RLS dùng. */
+export async function callerIsAdmin(req: Request): Promise<boolean> {
+  const { data, error } = await callerClient(req).rpc("is_admin");
+  return !error && data === true;
+}
+
 /** Chặn ngay nếu vượt hạn mức. Trả về false = đã vượt. */
 export async function withinRateLimit(
   db: SupabaseClient,

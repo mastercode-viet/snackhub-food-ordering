@@ -7,6 +7,15 @@ verify_jwt = true
 [functions.apply-discount]
 verify_jwt = true
 
+[functions.cancel-payment]
+verify_jwt = true
+
 # PayOS KHÔNG gửi JWT. Bảo mật dựa hoàn toàn vào HMAC checksum trong body.
 [functions.payos-webhook]
 verify_jwt = false
+
+# Phải là JWT đã đăng nhập (không phải anon key) — hàm tự kiểm tra thêm
+# is_admin() của chính JWT đó qua callerIsAdmin(), verify_jwt ở đây chỉ đảm
+# bảo chữ ký hợp lệ trước khi vào tới code.
+[functions.create-staff-account]
+verify_jwt = true

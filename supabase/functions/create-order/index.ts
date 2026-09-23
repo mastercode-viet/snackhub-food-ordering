@@ -124,9 +124,6 @@ Deno.serve(async (req) => {
         customer_name: input.customer_name,
         customer_phone: input.customer_phone,
         building: input.building,
-        floor: input.floor ?? null,
-        room: input.room ?? null,
-        class_name: input.class_name ?? null,
         delivery_note: input.delivery_note ?? null,
         subtotal,
         discount_amount: discountAmount,
@@ -170,7 +167,11 @@ Deno.serve(async (req) => {
 
         await db
           .from("orders")
-          .update({ payos_payment_link_id: link.paymentLinkId, payos_checkout_url: link.checkoutUrl })
+          .update({
+            payos_payment_link_id: link.paymentLinkId,
+            payos_checkout_url: link.checkoutUrl,
+            payos_qr_code: link.qrCode,
+          })
           .eq("id", order.id);
 
         return json(
@@ -225,7 +226,7 @@ async function buildItems(
 
   const { data: products, error: pErr } = await db
     .from("products")
-    .select("id, name, image_url, base_price, discount_percent, is_available")
+    .select("id, name, image_url, base_price, discount_type, discount_value, is_available")
     .in("id", productIds);
   if (pErr) throw pErr;
 
@@ -454,7 +455,11 @@ async function buildItems(
       }
     }
 
-    const discounted = Math.round(Number(product.base_price) * (1 - product.discount_percent / 100));
+    const cut =
+      product.discount_type === "percent"
+        ? Number(product.base_price) * (Number(product.discount_value) / 100)
+        : Number(product.discount_value);
+    const discounted = Math.max(0, Math.round(Number(product.base_price) - cut));
     const optionsPrice = chosen.reduce((s, o) => s + o.price_delta, 0);
     const unitPrice = Math.max(0, discounted + optionsPrice);
 

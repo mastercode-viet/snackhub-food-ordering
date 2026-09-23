@@ -93,7 +93,7 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
       continue;
     }
 
-    const unitBase = discountedPrice(product.base_price, product.discount_percent);
+    const unitBase = discountedPrice(product.base_price, product.discount_type, product.discount_value);
     const cartOptions = chosen.map((o) => ({
       groupId: o!.group_id,
       groupName: line.options.find((x) => x.option_id === o!.id)?.group_name ?? "",
@@ -113,7 +113,6 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
       categoryId: product.category_id,
       categoryIcon: product.categories?.icon ?? null,
       basePrice: product.base_price,
-      discountPercent: product.discount_percent,
       unitBase,
       options: cartOptions,
       optionsPrice,

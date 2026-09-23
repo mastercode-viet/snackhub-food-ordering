@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { closedMessage } from "@/components/home/StoreStatus";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, MapPin, NotebookPen, Receipt, Ticket, User } from "lucide-react";
+import { ArrowLeft, Info, MapPin, NotebookPen, Receipt, Ticket, User } from "lucide-react";
 import Field from "@/components/checkout/Field";
 import Select from "@/components/checkout/Select";
 import PaymentMethods from "@/components/checkout/PaymentMethods";
@@ -11,8 +11,7 @@ import { useStoreOpen, useStoreSettings } from "@/hooks/useMenu";
 import { ApiError, createOrder, type DiscountPreview } from "@/lib/api";
 import {
   BUILDINGS,
-  FLOORS,
-  OUTDOOR_BUILDING,
+  DELIVERY_POINT_NOTE,
   checkoutSchema,
   composeDeliveryNote,
   type CheckoutForm,
@@ -23,12 +22,7 @@ import { useProfileStore } from "@/store/profile";
 import { useRecentOrders } from "@/store/recentOrders";
 import { toast } from "@/store/toast";
 
-/**
- * Bật lại khi đã set PAYOS_CLIENT_ID / PAYOS_API_KEY / PAYOS_CHECKSUM_KEY
- * và deploy `payos-webhook` (S12). Để `false` thì ô VietQR hiện nhưng khoá,
- * tránh dẫn khách vào luồng thanh toán chưa chạy được.
- */
-const PAYOS_ENABLED = false;
+const PAYOS_ENABLED = true;
 
 export default function CheckoutPage() {
   const navigate = useNavigate();
@@ -51,9 +45,15 @@ export default function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // Giỏ rỗng thì không có gì để đặt — quay về giỏ hàng.
+  /**
+   * Đặt xong thì giỏ bị dọn sạch, nhưng lúc đó KHÔNG được coi là "giỏ rỗng"
+   * nữa — đích đến là màn Đơn & Tôi, không phải giỏ hàng.
+   */
+  const placed = useRef(false);
+
+  // Vào thẳng màn đặt hàng với giỏ rỗng thì không có gì để đặt — quay về giỏ.
   useEffect(() => {
-    if (items.length === 0) navigate("/gio-hang", { replace: true });
+    if (items.length === 0 && !placed.current) navigate("/gio-hang", { replace: true });
   }, [items.length, navigate]);
 
   const count = items.reduce((n, i) => n + i.quantity, 0);
@@ -62,22 +62,9 @@ export default function CheckoutPage() {
   const discountAmount = discount?.discount_amount ?? 0;
   const total = Math.max(0, subtotal - discountAmount + shippingFee);
 
-  const outdoor = form.building === OUTDOOR_BUILDING;
-
   function set<K extends keyof CheckoutForm>(key: K, value: CheckoutForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => ({ ...prev, [key]: undefined }));
-    setApiError(null);
-  }
-
-  /** Chọn khu ngoài trời thì xoá luôn tầng/phòng đã nhập cho khỏi gửi thừa. */
-  function selectBuilding(value: CheckoutForm["building"]) {
-    setForm((prev) =>
-      value === OUTDOOR_BUILDING
-        ? { ...prev, building: value, floor: "", room: "" }
-        : { ...prev, building: value },
-    );
-    setErrors((prev) => ({ ...prev, building: undefined, floor: undefined, room: undefined }));
     setApiError(null);
   }
 
@@ -102,8 +89,6 @@ export default function CheckoutPage() {
         customer_name: parsed.data.customer_name,
         customer_phone: parsed.data.customer_phone,
         building: parsed.data.building,
-        floor: parsed.data.floor || undefined,
-        room: parsed.data.room || undefined,
         delivery_note: composeDeliveryNote(parsed.data),
         payment_method: parsed.data.payment_method,
         discount_code: discount?.code,
@@ -120,13 +105,14 @@ export default function CheckoutPage() {
         ),
       });
 
+      // Khoá effect "giỏ rỗng" TRƯỚC khi dọn giỏ
+      placed.current = true;
+
       // Nhớ địa chỉ cho lần sau, rồi dọn giỏ
       saveProfile({
         customer_name: parsed.data.customer_name,
         customer_phone: parsed.data.customer_phone,
         building: parsed.data.building,
-        floor: parsed.data.floor ?? "",
-        room: parsed.data.room ?? "",
         address_detail: parsed.data.address_detail ?? "",
       });
       clearCart();
@@ -135,8 +121,9 @@ export default function CheckoutPage() {
       // chuyển thẳng về danh sách sẽ thấy trống.
       rememberOrder(result.order_code);
 
-      if (result.checkout_url) {
-        window.location.href = result.checkout_url;
+      // PayOS: sang trang QR trong app, không đá sang trang PayOS nữa.
+      if (result.payment_method === "payos") {
+        navigate(`/thanh-toan/${result.order_code}`, { replace: true });
         return;
       }
 
@@ -176,47 +163,27 @@ export default function CheckoutPage() {
       <div className="mx-auto w-full max-w-content px-margin-mobile pt-1 md:grid md:grid-cols-[minmax(0,1fr)_380px] md:items-start md:gap-gutter md:px-gutter">
         <div className="flex min-w-0 flex-col gap-3">
         <Card icon={<MapPin size={18} />} title="Giao đến">
-          <div className="grid grid-cols-2 gap-2">
-            <Select
-              label="Toà"
-              required
-              value={form.building ?? ""}
-              options={BUILDINGS}
-              placeholder="Chọn toà"
-              error={errors.building}
-              onChange={(v) => selectBuilding(v as CheckoutForm["building"])}
-            />
-            <Select
-              label="Tầng"
-              required={!outdoor}
-              disabled={outdoor}
-              value={form.floor ?? ""}
-              options={FLOORS}
-              placeholder={outdoor ? "Không áp dụng" : "Chọn tầng"}
-              error={errors.floor}
-              onChange={(v) => set("floor", v)}
-            />
-          </div>
+          <Select
+            label="Toà"
+            required
+            value={form.building ?? ""}
+            options={BUILDINGS}
+            placeholder="Chọn toà"
+            error={errors.building}
+            onChange={(v) => set("building", v as CheckoutForm["building"])}
+          />
 
-          {!outdoor && (
-            <Field
-              label="Phòng"
-              required
-              placeholder="A104"
-              maxLength={4}
-              value={form.room ?? ""}
-              error={errors.room}
-              hint="1 chữ cái + tối đa 3 số"
-              onChange={(e) => set("room", e.target.value.toUpperCase())}
-            />
-          )}
+          <p className="flex items-start gap-1.5 text-label-sm text-on-surface-variant">
+            <Info size={14} strokeWidth={2.2} aria-hidden="true" className="mt-px shrink-0" />
+            <span>{DELIVERY_POINT_NOTE}</span>
+          </p>
 
           <Field
             label="Chi tiết địa chỉ"
-            placeholder="Phòng nằm cuối dãy A, cạnh cầu thang bộ..."
+            placeholder="Đứng ở sảnh cạnh cầu thang bộ, mặc áo khoác xanh..."
             value={form.address_detail ?? ""}
             error={errors.address_detail}
-            hint="Giúp quán tìm đúng phòng nhanh hơn"
+            hint="Giúp quán tìm đúng chỗ nhanh hơn"
             maxLength={200}
             onChange={(e) => set("address_detail", e.target.value)}
           />
