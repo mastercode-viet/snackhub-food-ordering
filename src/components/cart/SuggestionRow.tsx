@@ -60,7 +60,7 @@ export default function SuggestionRow({ items }: { items: CartItem[] }) {
               <Skeleton key={i} className="h-36 w-32 shrink-0 rounded-card" />
             ))
           : data!.map((p) => {
-              const price = discountedPrice(p.base_price, p.discount_percent);
+              const price = discountedPrice(p.base_price, p.discount_type, p.discount_value);
               return (
                 <Link
                   key={p.id}

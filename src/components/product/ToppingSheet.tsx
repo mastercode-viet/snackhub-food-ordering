@@ -72,7 +72,9 @@ export default function ToppingSheet({
 
   if (!product && !loading) return null;
 
-  const unitBase = product ? discountedPrice(product.base_price, product.discount_percent) : 0;
+  const unitBase = product
+    ? discountedPrice(product.base_price, product.discount_type, product.discount_value)
+    : 0;
   const optionsPrice = chosen.reduce((s, o) => s + o.priceDelta, 0);
   const unitPrice = Math.max(0, unitBase + optionsPrice);
   const missing = missingRequired(groups, effective);
@@ -91,7 +93,6 @@ export default function ToppingSheet({
       categoryId: product.category_id,
       categoryIcon: product.categories?.icon ?? null,
       basePrice: product.base_price,
-      discountPercent: product.discount_percent,
       unitBase,
       options: chosen,
       optionsPrice,
@@ -182,7 +183,7 @@ export default function ToppingSheet({
           )}
         </div>
 
-        <footer className="flex items-center gap-3 border-t border-outline-variant px-5 py-4 pb-safe">
+        <footer className="flex items-center gap-3 border-t border-outline-variant px-5 py-4 pb-safe mb-10">
           <QuantityStepper value={quantity} onChange={setQuantity} />
 
           <button

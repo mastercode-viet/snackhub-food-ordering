@@ -39,8 +39,7 @@ export type ProductCartItem = {
   categoryId: string | null;
   categoryIcon: string | null;
   basePrice: number;
-  discountPercent: number;
-  /** Giá món sau khi trừ % giảm, chưa cộng option */
+  /** Giá món sau khi trừ giảm giá, chưa cộng option */
   unitBase: number;
   options: CartOption[];
   optionsPrice: number;
@@ -91,7 +90,7 @@ function identityOf(item: NewCartItem): string {
 }
 
 /**
- * Dựng dòng giỏ hàng combo từ dữ liệu hiển thị (ComboBanner/ComboCard).
+ * Dựng dòng giỏ hàng combo từ dữ liệu hiển thị (ComboCard).
  * Combo không có option nên không cần bước "chọn" như ProductDetailPage —
  * bấm "Thêm vào giỏ" là gọi thẳng hàm này rồi addItem().
  */

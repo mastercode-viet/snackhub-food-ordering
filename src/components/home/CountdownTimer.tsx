@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
  * Đồng hồ đếm ngược HH:MM:SS cho khối Flash Sale.
  *
  * `endsAt` là ISO string mốc kết thúc. Hiện TRUYỀN NULL vì bảng `products` chưa
- * có cột thời gian khuyến mãi — schema chỉ có `discount_percent` vĩnh viễn,
- * không có `starts_at`/`ends_at`. Khi nào thêm cột đó thì truyền vào là chạy,
+ * có cột thời gian khuyến mãi — schema chỉ có `discount_type`/`discount_value`
+ * vĩnh viễn, không có `starts_at`/`ends_at`. Khi nào thêm cột đó thì truyền vào là chạy,
  * không phải sửa component.
  *
  * Null hoặc đã hết giờ thì KHÔNG render gì. Cố ý không bịa ra một mốc thời gian

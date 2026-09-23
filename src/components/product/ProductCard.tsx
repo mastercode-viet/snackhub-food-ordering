@@ -4,20 +4,20 @@ import { Plus } from "lucide-react";
 import { motion } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
 import ToppingSheet from "@/components/product/ToppingSheet";
-import { discountedPrice, formatVnd } from "@/lib/format";
+import { discountBadgeLabel, discountedPrice, formatVnd } from "@/lib/format";
 import type { ProductWithCategory } from "@/lib/queries";
 
 export default function ProductCard({ product }: { product: ProductWithCategory }) {
   const [sheetOpen, setSheetOpen] = useState(false);
-  const hasDiscount = product.discount_percent > 0;
-  const finalPrice = discountedPrice(product.base_price, product.discount_percent);
+  const hasDiscount = product.discount_value > 0;
+  const finalPrice = discountedPrice(product.base_price, product.discount_type, product.discount_value);
   const soldOut = !product.is_available;
 
   const inner = (
     <>
       {hasDiscount && !soldOut && (
         <span className="absolute left-3 top-3 z-10 rounded-full bg-primary-container px-2.5 py-0.5 text-label-xs font-black text-on-primary shadow-badge tracking-wide">
-          -{product.discount_percent}%
+          {discountBadgeLabel(product.discount_type, product.discount_value)}
         </span>
       )}
 

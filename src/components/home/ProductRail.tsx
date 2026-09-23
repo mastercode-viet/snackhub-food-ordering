@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
 import ErrorState from "@/components/ui/ErrorState";
 import { ProductRailSkeleton } from "@/components/Skeleton";
-import { discountedPrice, formatVnd } from "@/lib/format";
+import { discountBadgeLabel, discountedPrice, formatVnd } from "@/lib/format";
 import type { ProductWithCategory } from "@/lib/queries";
 
 export type RailLayout = "tile" | "wide";
@@ -119,8 +119,8 @@ function RailCard({
   layout: RailLayout;
   onBanner: boolean;
 }) {
-  const hasDiscount = product.discount_percent > 0;
-  const finalPrice = discountedPrice(product.base_price, product.discount_percent);
+  const hasDiscount = product.discount_value > 0;
+  const finalPrice = discountedPrice(product.base_price, product.discount_type, product.discount_value);
   const soldOut = !product.is_available;
   const categoryName = product.categories?.name ?? null;
 
@@ -188,7 +188,7 @@ function RailCard({
 
           {hasDiscount && !soldOut && (
             <span className="absolute right-0 top-0 rounded-bl-card-sm bg-sale px-2 py-0.5 text-label-xs font-extrabold text-on-sale shadow-badge">
-              -{product.discount_percent}%
+              {discountBadgeLabel(product.discount_type, product.discount_value)}
             </span>
           )}
 

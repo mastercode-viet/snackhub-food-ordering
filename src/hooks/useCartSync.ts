@@ -90,7 +90,7 @@ function checkLine(item: CartItem, snapshot: CartSyncSnapshot): LineCheck {
     };
   }
 
-  const unitBase = discountedPrice(product.base_price, product.discount_percent);
+  const unitBase = discountedPrice(product.base_price, product.discount_type, product.discount_value);
   const optionsPrice = item.options.reduce(
     (sum, o) => sum + Number(snapshot.options[o.optionId]!.price_delta),
     0,
