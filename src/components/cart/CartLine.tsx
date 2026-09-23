@@ -26,7 +26,7 @@ export default function CartLine({
   // khách chủ động thêm và trả tiền thêm, không nên lẫn với option như size.
   const optionSummary =
     item.kind === "combo"
-      ? item.items.map((i) => i.name).join(" · ")
+      ? item.items.map((i) => (i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name)).join(" · ")
       : item.options
           .filter((o) => o.source !== "topping")
           .map((o) => o.optionName)

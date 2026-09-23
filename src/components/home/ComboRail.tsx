@@ -1,5 +1,6 @@
 import { Plus, ShoppingBag } from "lucide-react";
 import { motion } from "motion/react";
+import { Link } from "react-router-dom";
 import ProductImage from "@/components/product/ProductImage";
 import ErrorState from "@/components/ui/ErrorState";
 import { ComboRailSkeleton } from "@/components/Skeleton";
@@ -15,7 +16,7 @@ const MAX_ITEM_CHIPS = 3;
 /**
  * Section "Ăn thả ga không lo về giá" — liệt kê TOÀN BỘ combo đang bán.
  *
- * Ẩn hẳn nếu không có combo nào, cùng chính sách với ComboBanner: một khối
+ * Ẩn hẳn nếu không có combo nào, cùng chính sách với BannerRail: một khối
  * quảng bá luôn rỗng còn tệ hơn không có khối đó — đúng lý do "Xem gần đây"
  * đã bị bỏ khỏi trang chủ trong đợt redesign trước.
  */
@@ -59,17 +60,23 @@ export default function ComboRail() {
 function ComboCard({ combo }: { combo: ComboWithItems }) {
   const addItem = useCartStore((s) => s.addItem);
 
-  const itemNames = combo.combo_items.map((i) => i.products?.name).filter((n): n is string => Boolean(n));
-  const shownNames = itemNames.slice(0, MAX_ITEM_CHIPS);
-  const extraCount = itemNames.length - shownNames.length;
+  const chips = combo.combo_items
+    .filter((i): i is typeof i & { products: NonNullable<typeof i.products> } => Boolean(i.products))
+    .map((i) => (i.quantity > 1 ? `${i.products.name} x${i.quantity}` : i.products.name));
+  const shownChips = chips.slice(0, MAX_ITEM_CHIPS);
+  const extraCount = chips.length - shownChips.length;
 
-  function handleAdd() {
+  function handleAdd(e: React.MouseEvent) {
+    e.preventDefault();
     addItem(comboToCartItem(combo, 1));
     toast.success(`Đã thêm "${combo.name}" vào giỏ`);
   }
 
   return (
-    <div className="flex w-72 items-start gap-3.5 rounded-card bg-surface-container-lowest p-2 border border-outline-variant/60 shadow-card">
+    <Link
+      to={`/combo/${combo.slug}`}
+      className="flex w-72 items-start gap-3.5 rounded-card bg-surface-container-lowest p-2 border border-outline-variant/60 shadow-card transition-shadow hover:shadow-card-hover"
+    >
       <ProductImage
         src={combo.image_url}
         alt={combo.name}
@@ -82,14 +89,14 @@ function ComboCard({ combo }: { combo: ComboWithItems }) {
           {combo.name}
         </h3>
 
-        {shownNames.length > 0 && (
+        {shownChips.length > 0 && (
           <div className="flex flex-wrap items-center gap-1">
-            {shownNames.map((name) => (
+            {shownChips.map((chip) => (
               <span
-                key={name}
+                key={chip}
                 className="rounded-full bg-secondary-fixed/60 px-2 py-0.5 text-label-xs font-semibold text-on-secondary-fixed"
               >
-                {name}
+                {chip}
               </span>
             ))}
             {extraCount > 0 && (
@@ -113,6 +120,6 @@ function ComboCard({ combo }: { combo: ComboWithItems }) {
           </motion.button>
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

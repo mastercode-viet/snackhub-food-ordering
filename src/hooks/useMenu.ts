@@ -2,10 +2,12 @@ import { useMemo } from "react";
 import { useAsync } from "@/hooks/useAsync";
 import {
   fetchCategories,
+  fetchComboBySlug,
   fetchProductBySlug,
   fetchProducts,
   fetchStoreOpen,
   fetchStoreSettings,
+  type ComboDetail,
   type ProductDetail,
   type ProductWithCategory,
 } from "@/lib/queries";
@@ -30,6 +32,15 @@ export function useProductDetail(slug: string | undefined) {
   );
 
   return useAsync<ProductDetail | null>(fn, [slug]);
+}
+
+export function useComboDetail(slug: string | undefined) {
+  const fn = useMemo(
+    () => () => (slug ? fetchComboBySlug(slug) : Promise.resolve(null)),
+    [slug],
+  );
+
+  return useAsync<ComboDetail | null>(fn, [slug]);
 }
 
 export function useProducts(params: { categoryId?: string | null; search?: string }) {
