@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { ChevronRight, MapPin, User } from "lucide-react";
 import SearchBar from "@/components/home/SearchBar";
 import CategoryPills from "@/components/home/CategoryPills";
-import ComboBanner from "@/components/home/ComboBanner";
+import BannerRail from "@/components/home/BannerRail";
 import ComboRail from "@/components/home/ComboRail";
 import CountdownTimer from "@/components/home/CountdownTimer";
 import ProductRail from "@/components/home/ProductRail";
@@ -11,7 +11,7 @@ import { StoreClosedBanner, StoreHoursBadge, StoreStatusLine } from "@/component
 import ProductGrid from "@/components/product/ProductGrid";
 import { useCategories, useProducts, useStoreOpen, useStoreSettings } from "@/hooks/useMenu";
 import { useDebounce } from "@/hooks/useDebounce";
-import { discountedPrice } from "@/lib/format";
+import { discountedPrice, effectiveDiscountRatio } from "@/lib/format";
 
 /** Số món tối đa hiển thị trong một dải cuộn ngang. */
 const RAIL_SIZE = 10;
@@ -38,10 +38,15 @@ export default function HomePage() {
     const available = (allProducts.data ?? []).filter((p) => p.is_available);
 
     return {
-      // Flash Sale: món đang giảm giá, giảm sâu xếp trước.
+      // Flash Sale: món đang giảm giá, giảm sâu xếp trước. Quy đổi cả giảm
+      // theo % lẫn giảm theo tiền về cùng tỷ lệ % hiệu dụng để so công bằng.
       flashSale: available
-        .filter((p) => p.discount_percent > 0)
-        .sort((a, b) => b.discount_percent - a.discount_percent)
+        .filter((p) => p.discount_value > 0)
+        .sort(
+          (a, b) =>
+            effectiveDiscountRatio(b.base_price, b.discount_type, b.discount_value) -
+            effectiveDiscountRatio(a.base_price, a.discount_type, a.discount_value),
+        )
         .slice(0, RAIL_SIZE),
 
       // Must Try: cờ is_featured do quán bật.
@@ -51,8 +56,8 @@ export default function HomePage() {
       goodCheap: [...available]
         .sort(
           (a, b) =>
-            discountedPrice(a.base_price, a.discount_percent) -
-            discountedPrice(b.base_price, b.discount_percent),
+            discountedPrice(a.base_price, a.discount_type, a.discount_value) -
+            discountedPrice(b.base_price, b.discount_type, b.discount_value),
         )
         .slice(0, RAIL_SIZE),
     };
@@ -74,10 +79,6 @@ export default function HomePage() {
 
   return (
     <div className="pt-safe">
-      {/* Banner combo nổi bật — vị trí TRÊN CÙNG trang chủ theo đúng yêu cầu.
-          Tự ẩn nếu chưa có combo nào bật is_featured. */}
-      <ComboBanner />
-
       {/* Đã bỏ hai khối mờ trang trí: chúng phủ sắc hồng/vàng lên nền giấy và
           là thứ điển hình tạo cảm giác "app đồ ăn AI". Editorial dựa vào khoảng
           trắng và phân cấp chữ, không dựa vào hiệu ứng nền. */}
@@ -87,13 +88,7 @@ export default function HomePage() {
             <div className="flex min-w-0 items-center gap-2.5">
               {/* Khai báo sẵn width/height để trình duyệt giữ chỗ, tránh nhảy
                   layout lúc ảnh chưa tải xong */}
-              <img
-                src="/logo.png"
-                alt="SnackHub"
-                width={156}
-                height={160}
-                className="size-12 shrink-0 object-contain"
-              />
+
               <p className="flex min-w-0 items-center gap-1 text-label-sm text-on-surface-variant">
                 <MapPin size={13} className="shrink-0 text-secondary" strokeWidth={2.5} />
                 Giao miễn phí trong trường
@@ -141,6 +136,10 @@ export default function HomePage() {
       </header>
 
       {storeOpen.data === false && <StoreClosedBanner settings={settings.data} />}
+
+      {/* Banner khuyến mãi do Admin quản lý — nằm ngay TRÊN mục combo.
+          Tự ẩn nếu chưa có banner nào đang bật. */}
+      <BannerRail />
 
       <ComboRail />
 
