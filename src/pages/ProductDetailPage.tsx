@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/Skeleton";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { useProductDetail } from "@/hooks/useMenu";
-import { discountedPrice, formatVnd } from "@/lib/format";
+import { discountAmountLabel, discountedPrice, formatVnd } from "@/lib/format";
 import {
   chosenOptions,
   initialSelections,
@@ -74,7 +74,7 @@ export default function ProductDetailPage() {
     );
   }
 
-  const unitBase = discountedPrice(product.base_price, product.discount_percent);
+  const unitBase = discountedPrice(product.base_price, product.discount_type, product.discount_value);
   const optionsPrice = chosen.reduce((s, o) => s + o.priceDelta, 0);
   const unitPrice = Math.max(0, unitBase + optionsPrice);
   const total = unitPrice * quantity;
@@ -96,7 +96,6 @@ export default function ProductDetailPage() {
       categoryId: product.category_id,
       categoryIcon: product.categories?.icon ?? null,
       basePrice: product.base_price,
-      discountPercent: product.discount_percent,
       unitBase,
       options: chosen,
       optionsPrice,
@@ -134,9 +133,9 @@ export default function ProductDetailPage() {
             </motion.button>
           </div>
 
-          {product.discount_percent > 0 && product.is_available && (
+          {product.discount_value > 0 && product.is_available && (
             <span className="absolute bottom-6 left-margin-mobile rounded-full bg-primary px-3.5 py-1 text-label-md font-black text-on-primary shadow-badge">
-              Giảm {product.discount_percent}%
+              Giảm {discountAmountLabel(product.discount_type, product.discount_value)}
             </span>
           )}
         </div>
