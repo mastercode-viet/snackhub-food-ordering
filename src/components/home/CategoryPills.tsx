@@ -1,8 +1,49 @@
+import { useState } from "react";
 import { motion } from "motion/react";
 import { CategoryRowSkeleton, Skeleton } from "@/components/Skeleton";
 import type { Tables } from "@/types/database";
 
-export type CategoryItem = { id: string | null; slug: string | null; name: string; icon: string | null };
+export type CategoryItem = {
+  id: string | null;
+  slug: string | null;
+  name: string;
+  icon: string | null;
+  image_url?: string | null;
+};
+
+/**
+ * Emoji icon là thiết kế cố ý, không phải placeholder "chưa có ảnh" — nên
+ * khi không có ảnh thì hiện emoji nguyên vẹn (không mờ/xám như ProductImage
+ * vẫn làm cho ảnh món thật sự thiếu). Có ảnh mà load lỗi thì rớt về emoji.
+ */
+function CategoryIconVisual({
+  item,
+  className,
+  emojiClassName,
+}: {
+  item: CategoryItem;
+  className: string;
+  emojiClassName?: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const showImage = item.image_url && !failed;
+
+  return (
+    <span aria-hidden="true" className={`grid shrink-0 place-items-center overflow-hidden ${className}`}>
+      {showImage ? (
+        <img
+          src={item.image_url!}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="size-full rounded-full object-cover"
+        />
+      ) : (
+        <span className={emojiClassName}>{item.icon || "🍽️"}</span>
+      )}
+    </span>
+  );
+}
 
 export default function CategoryPills({
   categories,
@@ -35,7 +76,13 @@ export default function CategoryPills({
 
   const items: CategoryItem[] = [
     { id: null, slug: null, name: "Tất cả", icon: "🧺" },
-    ...categories.map((c) => ({ id: c.id, slug: c.slug, name: c.name, icon: c.icon })),
+    ...categories.map((c) => ({
+      id: c.id,
+      slug: c.slug,
+      name: c.name,
+      icon: c.icon,
+      image_url: c.image_url,
+    })),
   ];
 
   return (
@@ -65,7 +112,7 @@ export default function CategoryPills({
                   : "bg-surface-container-lowest text-on-surface-variant border border-outline-variant shadow-card hover:bg-surface-container-low"
               }`}
             >
-              <span aria-hidden="true" className="text-base">{item.icon || "🍽️"}</span>
+              <CategoryIconVisual item={item} className="size-6 text-base" />
               <span>{item.name}</span>
             </motion.button>
           );
@@ -89,9 +136,11 @@ export default function CategoryPills({
                   : "bg-surface-container-lowest border border-outline-variant/80 shadow-card group-hover:border-primary/40 group-hover:shadow-card-hover"
               }`}
             >
-              <span aria-hidden="true" className="transition-transform duration-300 group-hover:scale-110">
-                {item.icon || "🍽️"}
-              </span>
+              <CategoryIconVisual
+                item={item}
+                className="size-full text-2xl"
+                emojiClassName="transition-transform duration-300 group-hover:scale-110"
+              />
             </div>
             <span
               className={`text-center text-label-sm leading-tight transition-colors duration-200 ${

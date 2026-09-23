@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from "react";
-import { ChevronRight, ImagePlus, Plus, Search, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, Coins, ImagePlus, Percent, Plus, Search, Trash2, X } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
-import { formatVnd } from "@/lib/format";
+import { discountAmountLabel, discountedPrice, formatVnd } from "@/lib/format";
 import { normalizeSearch, toSlug } from "@/lib/text";
 import { toast } from "@/store/toast";
 import ProductImage from "@/components/product/ProductImage";
+import { FormField, LabeledSwitch, MoneyInput, Toggle, inputClass } from "@/components/admin/AdminForm";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
@@ -235,7 +236,9 @@ function ProductRow({
           <p className="truncate text-label-sm text-on-surface-variant">
             {product.categories?.name ?? "chưa có danh mục"}
             {product.is_featured ? " · nổi bật" : ""}
-            {product.discount_percent > 0 ? ` · giảm ${product.discount_percent}%` : ""}
+            {product.discount_value > 0
+              ? ` · giảm ${discountAmountLabel(product.discount_type, product.discount_value)}`
+              : ""}
           </p>
         </div>
         <span className="shrink-0 text-label-md text-primary">
@@ -245,22 +248,13 @@ function ProductRow({
 
       {/* Công tắc còn/hết hàng: thao tác nhiều nhất trong ngày nên để ngay
           ngoài danh sách, không chôn trong form. */}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-pressed={product.is_available}
-        className={`inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-3 text-label-sm transition-colors ${
-          product.is_available
-            ? "bg-secondary-container text-on-secondary-container"
-            : "bg-error-container text-on-error-container"
-        }`}
-      >
-        <span
-          aria-hidden="true"
-          className={`size-1.5 rounded-full ${product.is_available ? "bg-secondary" : "bg-error"}`}
-        />
-        {product.is_available ? "Còn bán" : "Tạm hết"}
-      </button>
+      <LabeledSwitch
+        on={product.is_available}
+        onChange={onToggle}
+        onLabel="Còn bán"
+        offLabel="Tạm hết"
+        tone="danger"
+      />
     </li>
   );
 }
@@ -286,7 +280,8 @@ function ProductForm({
     description: product?.description ?? "",
     category_id: product?.category_id ?? null,
     base_price: product?.base_price ?? 0,
-    discount_percent: product?.discount_percent ?? 0,
+    discount_type: product?.discount_type ?? "percent",
+    discount_value: product?.discount_value ?? 0,
     image_url: product?.image_url ?? null,
     is_available: product?.is_available ?? true,
     is_featured: product?.is_featured ?? false,
@@ -430,26 +425,63 @@ function ProductForm({
         </select>
       </FormField>
 
-      <div className="grid grid-cols-2 gap-2">
-        <FormField label="Giá (đ)">
+      <FormField label="Giá (đ)">
+        <MoneyInput value={values.base_price} onChange={(v) => set("base_price", v)} />
+      </FormField>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-label-md text-on-surface">Giảm giá</label>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => set("discount_type", "percent")}
+            className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-card border text-label-md font-semibold transition-all ${
+              values.discount_type === "percent"
+                ? "border-primary bg-primary-container text-on-primary-container shadow-sm"
+                : "border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container"
+            }`}
+          >
+            <Percent size={16} strokeWidth={2.4} />
+            Theo phần trăm (%)
+          </button>
+          <button
+            type="button"
+            onClick={() => set("discount_type", "fixed")}
+            className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-card border text-label-md font-semibold transition-all ${
+              values.discount_type === "fixed"
+                ? "border-primary bg-primary-container text-on-primary-container shadow-sm"
+                : "border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container"
+            }`}
+          >
+            <Coins size={16} strokeWidth={2.4} />
+            Số tiền cố định (đ)
+          </button>
+        </div>
+      </div>
+
+      <FormField
+        label={values.discount_type === "percent" ? "Mức giảm (%)" : "Số tiền giảm (đ)"}
+        hint={
+          values.discount_value > 0
+            ? `Giá còn ${formatVnd(
+                discountedPrice(values.base_price, values.discount_type, values.discount_value),
+              )}`
+            : "Để 0 = không giảm"
+        }
+      >
+        {values.discount_type === "percent" ? (
           <input
             inputMode="numeric"
-            value={String(values.base_price)}
-            onChange={(e) => set("base_price", Number(e.target.value.replace(/\D/g, "")) || 0)}
-            className={inputClass}
-          />
-        </FormField>
-        <FormField label="Giảm giá (%)">
-          <input
-            inputMode="numeric"
-            value={String(values.discount_percent)}
+            value={String(values.discount_value)}
             onChange={(e) =>
-              set("discount_percent", Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0))
+              set("discount_value", Math.min(100, Number(e.target.value.replace(/\D/g, "")) || 0))
             }
             className={inputClass}
           />
-        </FormField>
-      </div>
+        ) : (
+          <MoneyInput value={values.discount_value} onChange={(v) => set("discount_value", v)} />
+        )}
+      </FormField>
 
       <FormField label="Thứ tự hiển thị" hint="Số nhỏ hiện trước">
         <input
@@ -501,38 +533,118 @@ function ProductForm({
   );
 }
 
+/**
+ * Badge tròn dùng chung: vừa là preview (ảnh nếu có, không thì icon emoji),
+ * vừa là nút bấm để mở file picker tải ảnh — không cần thêm ô "chọn ảnh"
+ * riêng, bấm thẳng lên badge là đủ, hợp không gian hẹp của form/hàng danh mục.
+ */
+function CategoryImageBadge({
+  imageUrl,
+  icon,
+  uploading,
+  onPick,
+}: {
+  imageUrl: string | null;
+  icon: string | null;
+  uploading: boolean;
+  onPick: (file: File) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [failed, setFailed] = useState(false);
+  const showImage = imageUrl && !failed;
+
+  // Reset lỗi khi ảnh đổi (upload ảnh mới sau khi ảnh cũ load lỗi) — nếu
+  // không, "failed" cũ còn treo sẽ chặn ảnh mới không bao giờ hiện được.
+  useEffect(() => setFailed(false), [imageUrl]);
+
+  return (
+    <button
+      type="button"
+      onClick={() => fileRef.current?.click()}
+      disabled={uploading}
+      title="Bấm để tải ảnh danh mục"
+      aria-label={imageUrl ? "Đổi ảnh danh mục" : "Tải ảnh cho danh mục"}
+      className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-full border border-outline-variant bg-surface-container text-xl transition-opacity hover:opacity-80 disabled:opacity-50"
+    >
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/webp,image/jpeg,image/png,image/avif"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onPick(file);
+        }}
+      />
+      {showImage ? (
+        <img
+          src={imageUrl}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="size-full object-cover"
+        />
+      ) : (
+        <span aria-hidden="true">{icon || "🍽️"}</span>
+      )}
+    </button>
+  );
+}
+
 function CategoryPanel({ categories, onRun }: { categories: AdminCategory[]; onRun: RunFn }) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function onPickImage(file: File) {
+    setUploading(true);
+    try {
+      setImageUrl(await uploadProductImage(file));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Tải ảnh thất bại.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-4 shadow-card">
       <form
-        className="flex flex-wrap gap-2"
+        className="flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           const n = name.trim();
           if (!n) return;
           setName("");
           setIcon("");
+          setImageUrl(null);
           void onRun(
             () =>
               createCategory({
                 name: n,
                 slug: toSlug(n),
                 icon: icon.trim() || null,
+                image_url: imageUrl,
                 sort_order: categories.length + 1,
               }),
             `Đã thêm danh mục "${n}".`,
           );
         }}
       >
+        <CategoryImageBadge
+          imageUrl={imageUrl}
+          icon={icon || null}
+          uploading={uploading}
+          onPick={onPickImage}
+        />
         <input
           value={icon}
           onChange={(e) => setIcon(e.target.value)}
           placeholder="🍜"
-          aria-label="Biểu tượng danh mục"
-          className="min-h-[44px] w-16 rounded-card border border-outline-variant bg-surface-container-lowest px-3 text-center text-body-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+          aria-label="Biểu tượng danh mục (dùng khi chưa có ảnh)"
+          className="min-h-[44px] w-14 rounded-card border border-outline-variant bg-surface-container-lowest px-2 text-center text-body-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
         />
         <input
           value={name}
@@ -551,112 +663,68 @@ function CategoryPanel({ categories, onRun }: { categories: AdminCategory[]; onR
 
       <ul className="flex flex-col divide-y divide-outline-variant">
         {categories.map((c) => (
-          <li key={c.id} className="flex items-center gap-3 py-2.5">
-            <span className="grid size-10 shrink-0 place-items-center rounded-full bg-surface-container text-xl">
-              {c.icon ?? "🍽️"}
-            </span>
-
-            <input
-              defaultValue={c.name}
-              onBlur={(e) => {
-                const next = e.target.value.trim();
-                if (!next || next === c.name) {
-                  e.target.value = c.name;
-                  return;
-                }
-                void onRun(() => updateCategory(c.id, { name: next }), "Đã đổi tên danh mục.");
-              }}
-              className="min-h-[44px] min-w-0 flex-1 rounded-card border border-outline-variant bg-surface-container-lowest px-3 text-body-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
-            />
-
-            <button
-              type="button"
-              onClick={() =>
-                void onRun(
-                  () => updateCategory(c.id, { is_active: !c.is_active }),
-                  c.is_active ? "Đã ẩn danh mục." : "Đã hiện lại danh mục.",
-                )
-              }
-              aria-pressed={c.is_active}
-              className={`inline-flex min-h-[44px] shrink-0 items-center rounded-full px-3 text-label-sm transition-colors ${
-                c.is_active
-                  ? "bg-secondary-container text-on-secondary-container"
-                  : "bg-surface-container text-on-surface-variant"
-              }`}
-            >
-              {c.is_active ? "Đang hiện" : "Đang ẩn"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (!confirm(`Xoá danh mục "${c.name}"?`)) return;
-                void onRun(() => deleteCategory(c.id), "Đã xoá danh mục.");
-              }}
-              aria-label={`Xoá ${c.name}`}
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-card text-error transition-colors hover:bg-error-container"
-            >
-              <Trash2 size={16} strokeWidth={2.2} />
-            </button>
-          </li>
+          <CategoryRow key={c.id} category={c} onRun={onRun} />
         ))}
       </ul>
     </section>
   );
 }
 
-const inputClass =
-  "min-h-[44px] w-full rounded-card border border-outline-variant bg-surface-container-lowest px-3 py-2 text-body-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container";
+function CategoryRow({ category: c, onRun }: { category: AdminCategory; onRun: RunFn }) {
+  const [uploading, setUploading] = useState(false);
 
-function FormField({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-label-sm text-on-surface-variant">{label}</span>
-      {children}
-      {hint && <span className="text-label-xs text-on-surface-variant">{hint}</span>}
-    </label>
-  );
-}
+  async function onPickImage(file: File) {
+    setUploading(true);
+    try {
+      const url = await uploadProductImage(file);
+      void onRun(() => updateCategory(c.id, { image_url: url }), "Đã cập nhật ảnh danh mục.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Tải ảnh thất bại.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
-function Toggle({
-  label,
-  hint,
-  on,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  on: boolean;
-  onChange: (v: boolean) => void;
-}) {
   return (
-    <button
-      type="button"
-      onClick={() => onChange(!on)}
-      aria-pressed={on}
-      className="flex min-h-[44px] items-center justify-between gap-3 rounded-card border border-outline-variant px-3 text-left transition-colors hover:bg-surface-container-low"
-    >
-      <span className="min-w-0">
-        <span className="block text-body-md text-on-surface">{label}</span>
-        <span className="block text-label-xs text-on-surface-variant">{hint}</span>
-      </span>
-      <span
-        className={`inline-flex shrink-0 items-center rounded-full px-3 py-1 text-label-sm ${
-          on
-            ? "bg-secondary-container text-on-secondary-container"
-            : "bg-surface-container text-on-surface-variant"
-        }`}
+    <li className="flex items-center gap-3 py-2.5">
+      <CategoryImageBadge imageUrl={c.image_url} icon={c.icon} uploading={uploading} onPick={onPickImage} />
+
+      <input
+        defaultValue={c.name}
+        onBlur={(e) => {
+          const next = e.target.value.trim();
+          if (!next || next === c.name) {
+            e.target.value = c.name;
+            return;
+          }
+          void onRun(() => updateCategory(c.id, { name: next }), "Đã đổi tên danh mục.");
+        }}
+        className="min-h-[44px] min-w-0 flex-1 rounded-card border border-outline-variant bg-surface-container-lowest px-3 text-body-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+      />
+
+      <LabeledSwitch
+        on={c.is_active}
+        onChange={() =>
+          void onRun(
+            () => updateCategory(c.id, { is_active: !c.is_active }),
+            c.is_active ? "Đã ẩn danh mục." : "Đã hiện lại danh mục.",
+          )
+        }
+        onLabel="Đang hiện"
+        offLabel="Đang ẩn"
+      />
+
+      <button
+        type="button"
+        onClick={() => {
+          if (!confirm(`Xoá danh mục "${c.name}"?`)) return;
+          void onRun(() => deleteCategory(c.id), "Đã xoá danh mục.");
+        }}
+        aria-label={`Xoá ${c.name}`}
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-card text-error transition-colors hover:bg-error-container"
       >
-        {on ? "Bật" : "Tắt"}
-      </span>
-    </button>
+        <Trash2 size={16} strokeWidth={2.2} />
+      </button>
+    </li>
   );
 }

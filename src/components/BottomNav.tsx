@@ -22,16 +22,8 @@ export default function BottomNav() {
       <header className="fixed inset-x-0 top-0 z-50 hidden border-b border-outline-variant/60 bg-surface-container-lowest/85 backdrop-blur-xl md:block">
         <div className="mx-auto flex h-16 w-full max-w-content items-center justify-between px-gutter">
           <NavLink to="/" className="flex items-center gap-3 transition-transform hover:scale-105 active:scale-95">
-            <img
-              src="/logo.png"
-              alt="SnackHub"
-              width={156}
-              height={160}
-              className="size-10 shrink-0 object-contain drop-shadow-sm"
-            />
-            <span className="font-bold text-headline-sm tracking-tight text-on-surface">
-              Snack<span className="text-primary">Hub</span>
-            </span>
+
+
           </NavLink>
 
           <nav className="flex items-center gap-1.5">
@@ -41,10 +33,9 @@ export default function BottomNav() {
                 to={to}
                 end={to === "/"}
                 className={({ isActive }) =>
-                  `relative flex min-h-[44px] items-center gap-2 rounded-full px-4 text-label-md transition-all duration-200 ${
-                    isActive
-                      ? "bg-inverse-surface text-inverse-on-surface shadow-cta font-semibold"
-                      : "text-on-surface-variant hover:bg-surface-container/70 hover:text-on-surface"
+                  `relative flex min-h-[44px] items-center gap-2 rounded-full px-4 text-label-md transition-all duration-200 ${isActive
+                    ? "bg-inverse-surface text-inverse-on-surface shadow-cta font-semibold"
+                    : "text-on-surface-variant hover:bg-surface-container/70 hover:text-on-surface"
                   }`
                 }
               >
@@ -56,9 +47,8 @@ export default function BottomNav() {
                       <motion.span
                         initial={{ scale: 0.5 }}
                         animate={{ scale: 1 }}
-                        className={`ml-1 grid h-5 min-w-[20px] place-items-center rounded-full px-1.5 text-label-xs font-bold ${
-                          isActive ? "bg-primary text-on-primary" : "bg-primary text-on-primary shadow-badge"
-                        }`}
+                        className={`ml-1 grid h-5 min-w-[20px] place-items-center rounded-full px-1.5 text-label-xs font-bold ${isActive ? "bg-primary text-on-primary" : "bg-primary text-on-primary shadow-badge"
+                          }`}
                       >
                         {badge > 99 ? "99+" : badge}
                       </motion.span>
@@ -96,9 +86,8 @@ export default function BottomNav() {
                       <motion.span
                         animate={isActive ? { scale: [1, 1.2, 1] } : { scale: 1 }}
                         transition={{ duration: 0.25 }}
-                        className={`grid size-7 place-items-center transition-colors duration-200 ${
-                          isActive ? "text-primary font-bold" : "text-on-surface-variant group-hover:text-on-surface"
-                        }`}
+                        className={`grid size-7 place-items-center transition-colors duration-200 ${isActive ? "text-primary font-bold" : "text-on-surface-variant group-hover:text-on-surface"
+                          }`}
                       >
                         <Icon size={21} strokeWidth={isActive ? 2.6 : 1.8} />
                       </motion.span>
@@ -116,9 +105,8 @@ export default function BottomNav() {
                     </span>
 
                     <span
-                      className={`mt-0.5 text-label-xs normal-case tracking-normal transition-colors duration-200 ${
-                        isActive ? "font-bold text-primary" : "text-on-surface-variant"
-                      }`}
+                      className={`mt-0.5 text-label-xs normal-case tracking-normal transition-colors duration-200 ${isActive ? "font-bold text-primary" : "text-on-surface-variant"
+                        }`}
                     >
                       {label}
                     </span>
