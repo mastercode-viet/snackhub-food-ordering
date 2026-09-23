@@ -7,8 +7,10 @@ import MenuPage from "@/pages/MenuPage";
 import CartPage from "@/pages/CartPage";
 import OrdersPage from "@/pages/OrdersPage";
 import ProductDetailPage from "@/pages/ProductDetailPage";
+import ComboDetailPage from "@/pages/ComboDetailPage";
 import CheckoutPage from "@/pages/CheckoutPage";
 import OrderTrackingPage from "@/pages/OrderTrackingPage";
+import PaymentQRPage from "@/pages/PaymentQRPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 // Khu vực Admin tách khỏi bundle khách: khách không bao giờ tải màn quản trị.
@@ -18,6 +20,12 @@ const AdminOrdersPage = lazy(() => import("@/pages/admin/AdminOrdersPage"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/AdminDashboardPage"));
 const AdminCatalogPage = lazy(() => import("@/pages/admin/AdminCatalogPage"));
 const AdminSettingsPage = lazy(() => import("@/pages/admin/AdminSettingsPage"));
+const AdminBannersPage = lazy(() => import("@/pages/admin/AdminBannersPage"));
+const AdminDiscountCodesPage = lazy(() => import("@/pages/admin/AdminDiscountCodesPage"));
+const AdminCombosPage = lazy(() => import("@/pages/admin/AdminCombosPage"));
+const AdminStaffPage = lazy(() => import("@/pages/admin/AdminStaffPage"));
+const AdminShiftsPage = lazy(() => import("@/pages/admin/AdminShiftsPage"));
+const AdminMyShiftsPage = lazy(() => import("@/pages/admin/AdminMyShiftsPage"));
 
 const router = createBrowserRouter([
   {
@@ -37,7 +45,9 @@ const router = createBrowserRouter([
 
       // Màn toàn trang — có sticky bar riêng nên không nằm trong AppLayout
       { path: "/mon/:slug", element: <ProductDetailPage /> },
+      { path: "/combo/:slug", element: <ComboDetailPage /> },
       { path: "/dat-hang", element: <CheckoutPage /> },
+      { path: "/thanh-toan/:orderCode", element: <PaymentQRPage /> },
       { path: "/don-hang/:orderCode", element: <OrderTrackingPage /> },
 
       {
@@ -52,7 +62,13 @@ const router = createBrowserRouter([
           { path: "don-hang", element: <AdminOrdersPage /> },
           { path: "thong-ke", element: <AdminDashboardPage /> },
           { path: "thuc-don", element: <AdminCatalogPage /> },
+          { path: "combos", element: <AdminCombosPage /> },
+          { path: "khuyen-mai", element: <AdminDiscountCodesPage /> },
           { path: "toppings", element: <AdminToppingsPage /> },
+          { path: "banner", element: <AdminBannersPage /> },
+          { path: "nhan-su", element: <AdminStaffPage /> },
+          { path: "ca-lam", element: <AdminShiftsPage /> },
+          { path: "lich-cua-toi", element: <AdminMyShiftsPage /> },
           { path: "cai-dat", element: <AdminSettingsPage /> },
         ],
       },
