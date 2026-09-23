@@ -16,38 +16,59 @@ export type AdminStatus = "checking" | "authed" | "anon";
 export function useAdminSession() {
   const [status, setStatus] = useState<AdminStatus>("checking");
   const [session, setSession] = useState<Session | null>(null);
+  // isAdmin: is_admin() true — admin cũ hoặc staff_profiles.role='superadmin', toàn quyền.
+  // isStaff: is_staff() true — có hồ sơ staff_profiles đang active (kể cả superadmin),
+  // dùng để hiện Widget Check-in/Check-out (cần staff_id hợp lệ để insert time_logs).
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isStaff, setIsStaff] = useState(false);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setSession(null);
+    setIsAdmin(false);
+    setIsStaff(false);
     setStatus("anon");
   }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    // Có session chưa đủ: tài khoản phải nằm trong bảng admins. is_admin() là
-    // cùng một hàm mà RLS dùng, nên UI không thể "rộng tay" hơn tầng DB.
+    // Có session chưa đủ: tài khoản phải là admin (is_admin()) HOẶC nhân viên
+    // (is_staff()) — cùng hai hàm mà RLS dùng, nên UI không thể "rộng tay"
+    // hơn tầng DB. Ai không thuộc cả hai (không phải admin cũ, không có hồ sơ
+    // staff_profiles) thì bị đăng xuất ngay.
     async function resolve(next: Session | null) {
       if (!next) {
         if (!cancelled) {
           setSession(null);
+          setIsAdmin(false);
+          setIsStaff(false);
           setStatus("anon");
         }
         return;
       }
 
-      const { data, error } = await supabase.rpc("is_admin");
+      const [adminRes, staffRes] = await Promise.all([
+        supabase.rpc("is_admin"),
+        supabase.rpc("is_staff"),
+      ]);
       if (cancelled) return;
 
-      if (error || data !== true) {
+      const admin = !adminRes.error && adminRes.data === true;
+      const staff = !staffRes.error && staffRes.data === true;
+
+      if (!admin && !staff) {
         await supabase.auth.signOut();
         if (cancelled) return;
         setSession(null);
+        setIsAdmin(false);
+        setIsStaff(false);
         setStatus("anon");
         return;
       }
 
+      setIsAdmin(admin);
+      setIsStaff(staff);
       setSession(next);
       setStatus("authed");
     }
@@ -86,5 +107,5 @@ export function useAdminSession() {
     };
   }, [status, signOut]);
 
-  return { status, session, signOut };
+  return { status, session, signOut, isAdmin, isStaff };
 }

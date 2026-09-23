@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronRight, Power } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
+import { MoneyInput } from "@/components/admin/AdminForm";
 import { formatVnd } from "@/lib/format";
 import { toast } from "@/store/toast";
 import ErrorState from "@/components/ui/ErrorState";
@@ -44,16 +45,16 @@ function SettingsForm({
   const [storeName, setStoreName] = useState(settings.store_name);
   const [openTime, setOpenTime] = useState(toTimeInput(settings.open_time));
   const [closeTime, setCloseTime] = useState(toTimeInput(settings.close_time));
-  const [shippingFee, setShippingFee] = useState(String(settings.shipping_fee));
-  const [minOrder, setMinOrder] = useState(String(settings.min_order_amount));
+  const [shippingFee, setShippingFee] = useState(Number(settings.shipping_fee));
+  const [minOrder, setMinOrder] = useState(Number(settings.min_order_amount));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setStoreName(settings.store_name);
     setOpenTime(toTimeInput(settings.open_time));
     setCloseTime(toTimeInput(settings.close_time));
-    setShippingFee(String(settings.shipping_fee));
-    setMinOrder(String(settings.min_order_amount));
+    setShippingFee(Number(settings.shipping_fee));
+    setMinOrder(Number(settings.min_order_amount));
   }, [settings]);
 
   async function run(patch: Parameters<typeof updateSettings>[0], okMessage: string) {
@@ -81,8 +82,8 @@ function SettingsForm({
         store_name: name,
         open_time: `${openTime}:00`,
         close_time: `${closeTime}:00`,
-        shipping_fee: Number(shippingFee) || 0,
-        min_order_amount: Number(minOrder) || 0,
+        shipping_fee: shippingFee,
+        min_order_amount: minOrder,
       },
       "Đã lưu cài đặt.",
     );
@@ -124,20 +125,10 @@ function SettingsForm({
 
         <div className="grid grid-cols-2 gap-2">
           <Field label="Phí giao (đ)" hint="Để 0 là miễn phí">
-            <input
-              inputMode="numeric"
-              value={shippingFee}
-              onChange={(e) => setShippingFee(e.target.value.replace(/\D/g, ""))}
-              className={inputClass}
-            />
+            <MoneyInput value={shippingFee} onChange={setShippingFee} />
           </Field>
           <Field label="Đơn tối thiểu (đ)">
-            <input
-              inputMode="numeric"
-              value={minOrder}
-              onChange={(e) => setMinOrder(e.target.value.replace(/\D/g, ""))}
-              className={inputClass}
-            />
+            <MoneyInput value={minOrder} onChange={setMinOrder} />
           </Field>
         </div>
 

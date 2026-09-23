@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Check, ChevronRight, Plus, RotateCw, Search, Trash2, X } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
+import { LabeledSwitch } from "@/components/admin/AdminForm";
 import { formatVnd } from "@/lib/format";
 import { normalizeSearch } from "@/lib/text";
 import { toast } from "@/store/toast";
@@ -314,26 +315,18 @@ function EditPanel({
                   <p className="text-label-sm text-primary">+{formatVnd(item.price_delta)}</p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() =>
+                <LabeledSwitch
+                  on={item.is_available}
+                  onChange={() =>
                     void onRun(
                       () => updateToppingItem(item.id, { is_available: !item.is_available }),
                       item.is_available ? "Đã đánh dấu tạm hết." : "Đã bật bán lại.",
                     )
                   }
-                  className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3 text-label-sm transition-colors ${
-                    item.is_available
-                      ? "bg-secondary-container text-on-secondary-container"
-                      : "bg-error-container text-on-error-container"
-                  }`}
-                >
-                  <span
-                    className={`size-1.5 rounded-full ${item.is_available ? "bg-secondary" : "bg-error"}`}
-                    aria-hidden="true"
-                  />
-                  {item.is_available ? "Còn bán" : "Tạm hết"}
-                </button>
+                  onLabel="Còn bán"
+                  offLabel="Tạm hết"
+                  tone="danger"
+                />
 
                 <button
                   type="button"

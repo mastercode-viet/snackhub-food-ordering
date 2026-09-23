@@ -1,31 +1,66 @@
 import { useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type TooltipContentProps,
+} from "recharts";
 import { useAsync } from "@/hooks/useAsync";
 import { formatVnd } from "@/lib/format";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
 import {
+  bucketDailyStats,
   fetchDailyStats,
+  fetchHeatmap,
+  fetchTopCombos,
   fetchTopProducts,
-  type DailyStat,
+  type HeatmapCell,
+  type RevenueBucket,
+  type TopCombo,
   type TopProduct,
 } from "@/lib/adminQueries";
 
-const RANGES = [7, 14, 30] as const;
+type Granularity = "day" | "week" | "month";
+
+const DAY_RANGES = [7, 14, 30] as const;
+
+const GRANULARITIES: Array<{ key: Granularity; label: string; noun: string }> = [
+  { key: "day", label: "Ngày", noun: "ngày" },
+  { key: "week", label: "Tuần", noun: "tuần" },
+  { key: "month", label: "Tháng", noun: "tháng" },
+];
 
 export default function AdminDashboardPage() {
-  const [days, setDays] = useState<number>(14);
+  const [granularity, setGranularity] = useState<Granularity>("day");
+  const [dayRange, setDayRange] = useState<number>(14);
+
+  // Ngày -> cửa sổ do người dùng chọn (7/14/30). Tuần/Tháng -> cửa sổ cố định
+  // đủ để gộp ra vài chục cột chart (12 tuần / 6 tháng), tránh thêm 1 bộ nút
+  // phạm vi nữa chồng lên granularity.
+  const days = granularity === "day" ? dayRange : granularity === "week" ? 84 : 180;
 
   const state = useAsync(
     async () => ({
       daily: await fetchDailyStats(days),
       top: await fetchTopProducts(days),
+      combos: await fetchTopCombos(days),
+      heatmap: await fetchHeatmap(days),
     }),
     [days],
   );
 
   const daily = state.data?.daily ?? [];
+  const buckets = useMemo(() => bucketDailyStats(daily, granularity), [daily, granularity]);
 
   const totals = useMemo(() => {
     return daily.reduce(
@@ -34,12 +69,24 @@ export default function AdminDashboardPage() {
         completed: acc.completed + d.completed_orders,
         cancelled: acc.cancelled + d.cancelled_orders,
         revenue: acc.revenue + d.revenue,
+        codRevenue: acc.codRevenue + d.cod_revenue,
+        payosRevenue: acc.payosRevenue + d.payos_revenue,
+        slaBreached: acc.slaBreached + d.sla_breached_orders,
       }),
-      { orders: 0, completed: 0, cancelled: 0, revenue: 0 },
+      {
+        orders: 0,
+        completed: 0,
+        cancelled: 0,
+        revenue: 0,
+        codRevenue: 0,
+        payosRevenue: 0,
+        slaBreached: 0,
+      },
     );
   }, [daily]);
 
   const avgOrder = totals.completed > 0 ? Math.round(totals.revenue / totals.completed) : 0;
+  const slaRate = totals.completed > 0 ? Math.round((totals.slaBreached / totals.completed) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -57,21 +104,42 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        <div className="flex gap-1.5">
-          {RANGES.map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setDays(r)}
-              className={`min-h-[44px] rounded-card px-3 text-label-md transition-colors ${
-                r === days
-                  ? "bg-primary-container text-on-primary-container"
-                  : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
-              }`}
-            >
-              {r} ngày
-            </button>
-          ))}
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex gap-1.5">
+            {GRANULARITIES.map((g) => (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => setGranularity(g.key)}
+                className={`min-h-[44px] rounded-card px-3 text-label-md transition-colors ${
+                  g.key === granularity
+                    ? "bg-inverse-surface text-inverse-on-surface"
+                    : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                }`}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
+
+          {granularity === "day" && (
+            <div className="flex gap-1.5">
+              {DAY_RANGES.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setDayRange(r)}
+                  className={`min-h-[36px] rounded-card-sm px-2.5 text-label-sm transition-colors ${
+                    r === dayRange
+                      ? "bg-primary-container text-on-primary-container"
+                      : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                  }`}
+                >
+                  {r} ngày
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
@@ -84,7 +152,7 @@ export default function AdminDashboardPage() {
         <ErrorState onRetry={state.reload} />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-gutter-mobile lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-gutter-mobile lg:grid-cols-5">
             <StatTile label="Doanh thu" value={formatVnd(totals.revenue)} />
             <StatTile label="Đơn đã nhận" value={String(totals.orders)} />
             <StatTile
@@ -93,11 +161,21 @@ export default function AdminDashboardPage() {
               hint={totals.cancelled > 0 ? `${totals.cancelled} đơn huỷ` : undefined}
             />
             <StatTile label="Trung bình mỗi đơn" value={formatVnd(avgOrder)} />
+            <StatTile
+              label="Tỷ lệ trễ SLA"
+              value={`${slaRate}%`}
+              hint={totals.slaBreached > 0 ? `${totals.slaBreached} đơn trễ` : "Không có đơn trễ"}
+            />
           </div>
 
-          <RevenueChart data={daily} />
+          <RevenueChart buckets={buckets} granularity={granularity} />
 
-          <TopProductTable rows={state.data!.top} />
+          <div className="grid gap-space-lg lg:grid-cols-2">
+            <PaymentSplitDonut cod={totals.codRevenue} payos={totals.payosRevenue} />
+            <BestSellersCard products={state.data!.top} combos={state.data!.combos} />
+          </div>
+
+          <HeatmapCard cells={state.data!.heatmap} />
         </>
       )}
     </div>
@@ -118,16 +196,27 @@ function StatTile({ label, value, hint }: { label: string; value: string; hint?:
   );
 }
 
-/**
- * Doanh thu theo ngày — MỘT chuỗi duy nhất nên không cần chú giải, tiêu đề
- * đã nói rõ đang đo gì. Chỉ gắn nhãn số lên cột cao nhất thay vì mọi cột.
- * Cột dùng div thay vì SVG để rê chuột và focus bàn phím hoạt động tự nhiên.
- */
-function RevenueChart({ data }: { data: DailyStat[] }) {
-  const max = Math.max(...data.map((d) => d.revenue), 0);
-  const peakDay = data.find((d) => d.revenue === max && max > 0)?.day;
+/** "2026-09-11" + tháng -> "11/09"; "2026-09" + tháng -> "09/2026". */
+function formatBucketLabel(key: string, granularity: Granularity): string {
+  if (granularity === "month") {
+    const [y, m] = key.split("-");
+    return `${m}/${y}`;
+  }
+  const [, month, day] = key.split("-");
+  return `${day}/${month}`;
+}
 
-  if (data.length === 0 || max === 0) {
+function RevenueChart({
+  buckets,
+  granularity,
+}: {
+  buckets: RevenueBucket[];
+  granularity: Granularity;
+}) {
+  const max = Math.max(...buckets.map((b) => b.revenue), 0);
+  const noun = GRANULARITIES.find((g) => g.key === granularity)!.noun;
+
+  if (buckets.length === 0 || max === 0) {
     return (
       <EmptyState
         icon="📊"
@@ -137,90 +226,271 @@ function RevenueChart({ data }: { data: DailyStat[] }) {
     );
   }
 
+  const chartData = buckets.map((b) => ({ ...b, label: formatBucketLabel(b.key, granularity) }));
+
   return (
     <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
-      <h2 className="text-label-lg text-on-surface">Doanh thu theo ngày</h2>
-      <p className="mt-0.5 text-label-sm text-on-surface-variant">
-        Cao nhất {formatVnd(max)}
-      </p>
+      <h2 className="text-label-lg text-on-surface">Doanh thu theo {noun}</h2>
+      <p className="mt-0.5 text-label-sm text-on-surface-variant">Cao nhất {formatVnd(max)}</p>
 
-      <div className="mt-space-lg flex h-48 items-end gap-0.5">
-        {data.map((d) => {
-          const heightPct = max > 0 ? Math.max((d.revenue / max) * 100, d.revenue > 0 ? 2 : 0) : 0;
-          const label = `${formatDay(d.day)}: ${formatVnd(d.revenue)}, ${d.completed_orders} đơn hoàn tất`;
-
-          return (
-            <div key={d.day} className="group relative flex h-full flex-1 flex-col justify-end">
-              {d.day === peakDay && (
-                <span className="mb-1 text-center text-label-xs text-on-surface-variant">
-                  {Math.round(d.revenue / 1000)}k
-                </span>
-              )}
-
-              <div
-                tabIndex={0}
-                role="img"
-                aria-label={label}
-                title={label}
-                style={{ height: `${heightPct}%` }}
-                className="w-full rounded-t-card-sm bg-primary/85 transition-colors hover:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
-              />
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Nhãn trục thưa dần theo độ dài dải ngày — 30 nhãn sát nhau thì chữ
-          chồng lên nhau, không đọc được. Ngày cuối luôn có nhãn. */}
-      <div className="mt-2 flex gap-0.5 border-t border-outline-variant pt-1.5">
-        {data.map((d, i) => {
-          const step = Math.ceil(data.length / 7);
-          const show = i === data.length - 1 || (data.length - 1 - i) % step === 0;
-          return (
-            <span
-              key={d.day}
-              className="flex-1 overflow-hidden text-center text-label-xs text-on-surface-variant"
-            >
-              {show ? formatDay(d.day) : ""}
-            </span>
-          );
-        })}
+      <div className="mt-space-lg h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke="rgb(var(--color-outline-variant))" />
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 11, fill: "rgb(var(--color-on-surface-variant))" }}
+              axisLine={{ stroke: "rgb(var(--color-outline-variant))" }}
+              tickLine={false}
+              interval={chartData.length > 14 ? Math.ceil(chartData.length / 10) : 0}
+            />
+            <YAxis hide domain={[0, "dataMax"]} />
+            <Tooltip cursor={{ fill: "rgb(var(--color-primary) / 0.08)" }} content={RevenueTooltip} />
+            <Bar dataKey="revenue" fill="rgb(var(--color-primary) / 0.85)" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </section>
   );
 }
 
-/** Nhãn trục ngắn gọn: chỉ ngày/tháng, năm không đổi trong khoảng đang xem. */
-function formatDay(iso: string): string {
-  const [, month, day] = iso.split("-");
-  return `${day}/${month}`;
+function RevenueTooltip({ active, payload }: TooltipContentProps) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload as RevenueBucket & { label: string };
+
+  return (
+    <div className="rounded-card-sm bg-inverse-surface px-3 py-2 text-label-sm text-inverse-on-surface shadow-card">
+      <p>{d.label}</p>
+      <p className="mt-0.5 font-medium">{formatVnd(d.revenue)}</p>
+      <p className="text-inverse-on-surface/80">{d.completed_orders} đơn hoàn tất</p>
+    </div>
+  );
 }
 
-function TopProductTable({ rows }: { rows: TopProduct[] }) {
-  if (rows.length === 0) return null;
+const PAYMENT_COLORS = {
+  cod: "rgb(var(--color-secondary))",
+  payos: "rgb(var(--color-primary))",
+};
+
+function PaymentSplitDonut({ cod, payos }: { cod: number; payos: number }) {
+  const total = cod + payos;
+  const data = [
+    { name: "Tiền mặt (COD)", value: cod, color: PAYMENT_COLORS.cod },
+    { name: "Chuyển khoản (PayOS)", value: payos, color: PAYMENT_COLORS.payos },
+  ];
 
   return (
     <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
-      <h2 className="text-label-lg text-on-surface">Món bán chạy</h2>
+      <h2 className="text-label-lg text-on-surface">Tỷ trọng thanh toán</h2>
 
-      <table className="mt-space-md w-full text-body-md">
-        <thead>
-          <tr className="border-b border-outline-variant text-label-sm text-on-surface-variant">
-            <th scope="col" className="py-2 text-left font-normal">Món</th>
-            <th scope="col" className="py-2 text-right font-normal">Đã bán</th>
-            <th scope="col" className="py-2 text-right font-normal">Doanh thu</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.product_name} className="border-b border-outline-variant last:border-0">
-              <td className="py-2.5 text-on-surface">{r.product_name}</td>
-              <td className="py-2.5 text-right text-on-surface-variant">{r.quantity}</td>
-              <td className="py-2.5 text-right text-on-surface">{formatVnd(r.revenue)}</td>
-            </tr>
+      {total === 0 ? (
+        <EmptyState
+          icon="💳"
+          title="Chưa có doanh thu"
+          description="Chưa có đơn hoàn tất trong khoảng đang xem."
+        />
+      ) : (
+        <div className="mt-space-md flex flex-col items-center gap-4 sm:flex-row">
+          <div className="relative h-44 w-44 shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={data}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius="65%"
+                  outerRadius="100%"
+                  paddingAngle={2}
+                  stroke="none"
+                >
+                  {data.map((d) => (
+                    <Cell key={d.name} fill={d.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value) => formatVnd(Number(value))}
+                  contentStyle={{
+                    borderRadius: 12,
+                    border: "none",
+                    backgroundColor: "rgb(var(--color-inverse-surface))",
+                    color: "rgb(var(--color-inverse-on-surface))",
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <p className="text-label-sm text-on-surface-variant">Tổng</p>
+              <p className="text-label-md text-on-surface">{formatVnd(total)}</p>
+            </div>
+          </div>
+
+          <ul className="w-full flex-1 space-y-2">
+            {data.map((d) => (
+              <li key={d.name} className="flex items-center justify-between gap-2 text-body-sm">
+                <span className="flex items-center gap-2 text-on-surface-variant">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+                  {d.name}
+                </span>
+                <span className="shrink-0 text-on-surface">
+                  {formatVnd(d.value)} · {Math.round((d.value / total) * 100)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BestSellersCard({ products, combos }: { products: TopProduct[]; combos: TopCombo[] }) {
+  const [tab, setTab] = useState<"products" | "combos">("products");
+
+  return (
+    <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-label-lg text-on-surface">Bán chạy</h2>
+
+        <div className="flex gap-1 rounded-card bg-surface-container p-1">
+          {(["products", "combos"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`min-h-[36px] rounded-card-sm px-3 text-label-sm transition-colors ${
+                tab === t
+                  ? "bg-surface-container-lowest text-on-surface shadow-card"
+                  : "text-on-surface-variant"
+              }`}
+            >
+              {t === "products" ? "Sản phẩm" : "Combo"}
+            </button>
           ))}
-        </tbody>
-      </table>
+        </div>
+      </div>
+
+      <div className="mt-space-md">
+        {tab === "products" ? <TopProductTable rows={products} /> : <TopComboTable rows={combos} />}
+      </div>
+    </section>
+  );
+}
+
+function TopProductTable({ rows }: { rows: TopProduct[] }) {
+  if (rows.length === 0) {
+    return <p className="text-body-sm text-on-surface-variant">Chưa có món nào bán trong khoảng này.</p>;
+  }
+
+  return (
+    <table className="w-full text-body-md">
+      <thead>
+        <tr className="border-b border-outline-variant text-label-sm text-on-surface-variant">
+          <th scope="col" className="py-2 text-left font-normal">Món</th>
+          <th scope="col" className="py-2 text-right font-normal">Đã bán</th>
+          <th scope="col" className="py-2 text-right font-normal">Doanh thu</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.product_name} className="border-b border-outline-variant last:border-0">
+            <td className="py-2.5 text-on-surface">{r.product_name}</td>
+            <td className="py-2.5 text-right text-on-surface-variant">{r.quantity}</td>
+            <td className="py-2.5 text-right text-on-surface">{formatVnd(r.revenue)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function TopComboTable({ rows }: { rows: TopCombo[] }) {
+  if (rows.length === 0) {
+    return <p className="text-body-sm text-on-surface-variant">Chưa có combo nào bán trong khoảng này.</p>;
+  }
+
+  return (
+    <table className="w-full text-body-md">
+      <thead>
+        <tr className="border-b border-outline-variant text-label-sm text-on-surface-variant">
+          <th scope="col" className="py-2 text-left font-normal">Combo</th>
+          <th scope="col" className="py-2 text-right font-normal">Đã bán</th>
+          <th scope="col" className="py-2 text-right font-normal">Doanh thu</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.combo_id} className="border-b border-outline-variant last:border-0">
+            <td className="py-2.5 text-on-surface">{r.combo_name}</td>
+            <td className="py-2.5 text-right text-on-surface-variant">{r.quantity}</td>
+            <td className="py-2.5 text-right text-on-surface">{formatVnd(r.revenue)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// Thứ tự Date#getDay(): 0 = Chủ nhật. Xoay lại để tuần bắt đầu Thứ 2 cho quen mắt.
+const DOW_LABELS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+const DOW_ROW_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const HOUR_TICKS = new Set([0, 3, 6, 9, 12, 15, 18, 21]);
+
+function HeatmapCard({ cells }: { cells: HeatmapCell[] }) {
+  const max = Math.max(...cells.map((c) => c.total_orders), 0);
+  const countMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of cells) map.set(`${c.dow}-${c.hour}`, c.total_orders);
+    return map;
+  }, [cells]);
+
+  if (max === 0) {
+    return (
+      <EmptyState
+        icon="🕒"
+        title="Chưa đủ dữ liệu khung giờ"
+        description="Heatmap cần có đơn hàng phát sinh trong khoảng đang xem."
+      />
+    );
+  }
+
+  return (
+    <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
+      <h2 className="text-label-lg text-on-surface">Khung giờ cao điểm</h2>
+      <p className="mt-0.5 text-label-sm text-on-surface-variant">Số đơn theo thứ và giờ trong ngày</p>
+
+      <div className="mt-space-lg overflow-x-auto">
+        <div className="inline-flex min-w-full flex-col gap-1">
+          <div className="flex gap-1 pl-9">
+            {Array.from({ length: 24 }, (_, hour) => (
+              <div key={hour} className="w-5 shrink-0 text-center text-label-xs text-on-surface-variant">
+                {HOUR_TICKS.has(hour) ? hour : ""}
+              </div>
+            ))}
+          </div>
+
+          {DOW_ROW_ORDER.map((dow) => (
+            <div key={dow} className="flex items-center gap-1">
+              <div className="w-8 shrink-0 text-label-xs text-on-surface-variant">{DOW_LABELS[dow]}</div>
+              {Array.from({ length: 24 }, (_, hour) => {
+                const count = countMap.get(`${dow}-${hour}`) ?? 0;
+                const opacity = count === 0 ? 0 : Math.max(0.12, count / max);
+                const label = `${DOW_LABELS[dow]} ${hour}h: ${count} đơn`;
+                return (
+                  <div
+                    key={hour}
+                    role="img"
+                    aria-label={label}
+                    title={label}
+                    tabIndex={0}
+                    className="h-5 w-5 shrink-0 rounded-card-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+                    style={{ backgroundColor: `rgb(var(--color-primary) / ${opacity})` }}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
     </section>
   );
 }

@@ -28,8 +28,8 @@ export default function AdminLoginPage() {
     }
 
     // Không chuyển trang ở đây: useAdminSession lắng nghe onAuthStateChange,
-    // kiểm tra is_admin() rồi mới cho vào — người có session mà không phải
-    // admin sẽ bị đăng xuất lại ngay.
+    // kiểm tra is_admin()/is_staff() rồi mới cho vào — người có session mà
+    // không phải admin lẫn nhân viên sẽ bị đăng xuất lại ngay.
   }
 
   return (
