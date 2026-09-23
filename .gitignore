@@ -19,3 +19,6 @@ supabase/.temp/
 
 # Build artifact của `tsc -b`
 *.tsbuildinfo
+
+# Log/ảnh chụp của Playwright MCP khi test thủ công — không phải fixture test.
+.playwright-mcp/
