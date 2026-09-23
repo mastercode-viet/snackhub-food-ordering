@@ -13,6 +13,25 @@ export const STATUS_LABEL: Record<Status, string> = {
   cancelled: "Đã huỷ",
 };
 
+/** Thứ tự trình bày: 4 bước theo luồng, "đã huỷ" nằm ngoài luồng nên xếp cuối. */
+export const STATUS_ORDER = [
+  "pending_confirmation",
+  "preparing",
+  "delivering",
+  "completed",
+  "cancelled",
+] as const satisfies readonly Status[];
+
+/**
+ * Màu chấm tròn báo trạng thái. Tách ra để badge và bộ lọc không lệch màu nhau
+ * — cùng một trạng thái phải cùng một màu ở mọi chỗ.
+ */
+export function statusDotClass(status: Status): string {
+  if (status === "cancelled") return "bg-error";
+  if (status === "completed") return "bg-secondary";
+  return "animate-pulse bg-primary";
+}
+
 /** 4 bước của một đơn chạy trơn tru; "cancelled" nằm ngoài luồng này. */
 const FLOW: Array<{ status: Status; label: string; detail: string; icon: typeof Clock }> = [
   {
@@ -36,16 +55,7 @@ export function OrderStatusBadge({ status }: { status: Status }) {
 
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-label-md ${tone}`}>
-      <span
-        aria-hidden="true"
-        className={`size-2 rounded-full ${
-          status === "cancelled"
-            ? "bg-error"
-            : status === "completed"
-              ? "bg-secondary"
-              : "animate-pulse bg-primary"
-        }`}
-      />
+      <span aria-hidden="true" className={`size-2 rounded-full ${statusDotClass(status)}`} />
       {STATUS_LABEL[status]}
     </span>
   );

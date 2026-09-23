@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Phone, RotateCw } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
+import {
+  AlertTriangle,
+  Building2,
+  ChevronRight,
+  Clock,
+  Flame,
+  Layers,
+  Phone,
+  RotateCw,
+  Timer,
+} from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
+import { useOrderNotification } from "@/hooks/useOrderNotification";
+import OrderSoundToggle from "@/components/admin/OrderSoundToggle";
+import type { AdminOutletContext } from "@/routes/AdminLayout";
 import { supabase } from "@/lib/supabase";
 import { formatVnd, formatTime } from "@/lib/format";
 import { toast } from "@/store/toast";
@@ -24,19 +38,84 @@ const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>>
   delivering: { status: "completed", label: "Hoàn tất đơn" },
 };
 
-const TABS: Array<{ key: OrderStatus | "all"; label: string }> = [
+const TABS: Array<{ key: OrderStatus | "all" | "sla_overdue"; label: string }> = [
   { key: "pending_confirmation", label: "Chờ xác nhận" },
   { key: "preparing", label: "Đang làm" },
   { key: "delivering", label: "Đang giao" },
   { key: "completed", label: "Hoàn tất" },
   { key: "cancelled", label: "Đã huỷ" },
   { key: "all", label: "Tất cả" },
+  { key: "sla_overdue", label: "⚠️ Trễ hạn SLA" },
 ];
 
+export type SlaLevel = "normal" | "warning" | "critical";
+
+export function getOrderSla(
+  order: AdminOrder,
+  now: number,
+): {
+  elapsedMinutes: number;
+  level: SlaLevel;
+  label: string;
+} {
+  const isFinished = order.status === "completed" || order.status === "cancelled";
+  const createdMs = new Date(order.created_at).getTime();
+  const elapsedMs = Math.max(0, now - createdMs);
+  const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
+
+  if (isFinished) {
+    return {
+      elapsedMinutes,
+      level: "normal",
+      label: `${elapsedMinutes}p`,
+    };
+  }
+
+  // Đơn chưa hoàn tất:
+  // >= 20 phút: Critical (Đỏ - Trễ hạn SLA)
+  // >= 15 phút: Warning (Vàng - Cảnh báo trễ)
+  if (elapsedMinutes >= 20) {
+    return {
+      elapsedMinutes,
+      level: "critical",
+      label: `${elapsedMinutes}p · Trễ SLA`,
+    };
+  }
+
+  if (elapsedMinutes >= 15) {
+    return {
+      elapsedMinutes,
+      level: "warning",
+      label: `${elapsedMinutes}p · Sắp trễ`,
+    };
+  }
+
+  return {
+    elapsedMinutes,
+    level: "normal",
+    label: `${elapsedMinutes}p`,
+  };
+}
+
 export default function AdminOrdersPage() {
+  const { isAdmin } = useOutletContext<AdminOutletContext>();
   const state = useAsync(() => fetchAdminOrders(), []);
-  const [tab, setTab] = useState<OrderStatus | "all">("pending_confirmation");
+  const { soundEnabled, enableSound, disableSound } = useOrderNotification(() => state.reload());
+  const [tab, setTab] = useState<OrderStatus | "all" | "sla_overdue">("pending_confirmation");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [now, setNow] = useState<number>(() => Date.now());
+  // Lọc + gom nhóm theo toà nhà: chỉ Superadmin có nhu cầu điều phối giao
+  // hàng theo khu vực toàn quán; staff xử lý đơn theo hàng đợi thông thường.
+  const [buildingFilter, setBuildingFilter] = useState<string>("all");
+  const [groupByBuilding, setGroupByBuilding] = useState(false);
+
+  // Cập nhật bộ đếm thời gian thực mỗi 15 giây để timer và cảnh báo nhảy số chính xác
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
   /**
    * Realtime chỉ dành cho Admin: Supabase Realtime tôn trọng RLS và `orders`
@@ -57,10 +136,86 @@ export default function AdminOrdersPage() {
   }, []);
 
   const orders = state.data ?? [];
-  const visible = useMemo(
-    () => (tab === "all" ? orders : orders.filter((o) => o.status === tab)),
-    [orders, tab],
-  );
+
+  // Thống kê SLA toàn cục
+  const { criticalCount, warningCount } = useMemo(() => {
+    let crit = 0;
+    let warn = 0;
+    for (const o of orders) {
+      if (o.status !== "completed" && o.status !== "cancelled") {
+        const sla = getOrderSla(o, now);
+        if (sla.level === "critical") crit++;
+        else if (sla.level === "warning") warn++;
+      }
+    }
+    return { criticalCount: crit, warningCount: warn };
+  }, [orders, now]);
+
+  // Danh sách toà nhà có đơn thật, để đổ vào <select> lọc — không bày sẵn
+  // toà không ai đặt, và Superadmin biết ngay khu nào đang phát sinh đơn.
+  const buildings = useMemo(() => {
+    return [...new Set(orders.map((o) => o.building))].sort((a, b) => a.localeCompare(b, "vi"));
+  }, [orders]);
+
+  // Lọc và Sắp xếp ưu tiên: Đơn trễ hạn (Critical -> Warning) tự động đẩy lên đầu danh sách!
+  const visible = useMemo(() => {
+    let filtered = orders;
+    if (tab === "sla_overdue") {
+      filtered = orders.filter((o) => {
+        if (o.status === "completed" || o.status === "cancelled") return false;
+        const sla = getOrderSla(o, now);
+        return sla.level === "critical" || sla.level === "warning";
+      });
+    } else if (tab !== "all") {
+      filtered = orders.filter((o) => o.status === tab);
+    }
+
+    if (isAdmin && buildingFilter !== "all") {
+      filtered = filtered.filter((o) => o.building === buildingFilter);
+    }
+
+    // Sắp xếp ưu tiên theo SLA đối với các đơn chưa hoàn thành
+    return [...filtered].sort((a, b) => {
+      const aFinished = a.status === "completed" || a.status === "cancelled";
+      const bFinished = b.status === "completed" || b.status === "cancelled";
+
+      if (aFinished !== bFinished) {
+        return aFinished ? 1 : -1; // Đơn đang xử lý luôn lên trước
+      }
+
+      const aSla = getOrderSla(a, now);
+      const bSla = getOrderSla(b, now);
+
+      const priorityWeight = { critical: 3, warning: 2, normal: 1 };
+      const aWeight = aFinished ? 0 : priorityWeight[aSla.level];
+      const bWeight = bFinished ? 0 : priorityWeight[bSla.level];
+
+      if (aWeight !== bWeight) {
+        return bWeight - aWeight; // Đơn trễ hơn xếp trước
+      }
+
+      // Nếu cùng mức ưu tiên, đơn chờ lâu hơn (elapsedMinutes lớn hơn) xếp trước
+      if (!aFinished && aSla.elapsedMinutes !== bSla.elapsedMinutes) {
+        return bSla.elapsedMinutes - aSla.elapsedMinutes;
+      }
+
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [orders, tab, now, isAdmin, buildingFilter]);
+
+  // Gom `visible` (đã lọc + sắp SLA) thành từng nhóm theo toà nhà, giữ
+  // nguyên thứ tự ưu tiên SLA bên trong mỗi nhóm — chỉ đổi cách trình bày,
+  // không đổi cách xếp hạng đơn cần xử lý trước.
+  const groupedByBuilding = useMemo(() => {
+    if (!groupByBuilding) return null;
+    const map = new Map<string, AdminOrder[]>();
+    for (const o of visible) {
+      const list = map.get(o.building) ?? [];
+      list.push(o);
+      map.set(o.building, list);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "vi"));
+  }, [visible, groupByBuilding]);
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -90,43 +245,145 @@ export default function AdminOrdersPage() {
 
       <header className="flex flex-wrap items-start justify-between gap-4 rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
         <div className="min-w-0">
-          <h1 className="text-headline-sm text-on-surface">Hàng đợi đơn hàng</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-headline-sm text-on-surface">Hàng đợi đơn hàng</h1>
+            {(criticalCount > 0 || warningCount > 0) && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-error/10 px-2.5 py-0.5 text-label-xs font-bold text-error animate-pulse">
+                <AlertTriangle size={13} strokeWidth={2.5} />
+                {criticalCount + warningCount} đơn cần xử lý gấp
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-body-sm text-on-surface-variant">
-            Đơn mới tự hiện, không cần tải lại trang.
+            Tự động cập nhật Realtime. Tích hợp bộ đếm SLA: đơn quá 15-20 phút tự động đổi màu
+            và được đẩy lên vị trí ưu tiên cao nhất.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={state.reload}
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-card border border-outline-variant px-3 text-label-md text-on-surface transition-colors hover:bg-surface-container"
-        >
-          <RotateCw size={16} strokeWidth={2.2} />
-          Tải lại
-        </button>
+        <div className="flex items-center gap-2">
+          <OrderSoundToggle enabled={soundEnabled} onEnable={() => void enableSound()} onDisable={disableSound} />
+          <button
+            type="button"
+            onClick={state.reload}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-card border border-outline-variant px-3 text-label-md text-on-surface transition-colors hover:bg-surface-container"
+          >
+            <RotateCw size={16} strokeWidth={2.2} />
+            Tải lại
+          </button>
+        </div>
       </header>
+
+      {/* Thanh cảnh báo tổng quan SLA nếu có đơn bị trễ */}
+      {(criticalCount > 0 || warningCount > 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card-lg border border-error/30 bg-error-container/40 px-4 py-3 text-on-error-container">
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-error text-on-error">
+              <Timer size={17} strokeWidth={2.4} />
+            </span>
+            <div className="text-label-md">
+              <strong>Cảnh báo trễ hạn (SLA Alert):</strong>{" "}
+              <span>
+                {criticalCount > 0 && (
+                  <span className="font-bold text-error">
+                    {criticalCount} đơn trễ hạn (&gt;20 phút){" "}
+                  </span>
+                )}
+                {criticalCount > 0 && warningCount > 0 && "· "}
+                {warningCount > 0 && (
+                  <span className="font-semibold text-amber-700">
+                    {warningCount} đơn sắp trễ (&gt;15 phút)
+                  </span>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setTab("sla_overdue")}
+            className="inline-flex min-h-[36px] items-center gap-1 rounded-full bg-error px-3 text-label-sm font-bold text-on-error shadow-sm hover:opacity-90"
+          >
+            Xem các đơn trễ
+            <ChevronRight size={14} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
 
       <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
         {TABS.map((t) => {
           const active = t.key === tab;
-          const count = t.key === "all" ? orders.length : (counts.get(t.key) ?? 0);
+          let count = 0;
+          if (t.key === "all") count = orders.length;
+          else if (t.key === "sla_overdue") count = criticalCount + warningCount;
+          else count = counts.get(t.key) ?? 0;
+
+          const isSlaTab = t.key === "sla_overdue";
+
           return (
             <button
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className={`inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-full px-4 text-label-md transition-colors ${
+              className={`inline-flex min-h-[44px] shrink-0 items-center gap-2 rounded-full px-4 text-label-md font-semibold transition-all ${
                 active
-                  ? "bg-primary-container text-on-primary-container"
-                  : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                  ? isSlaTab
+                    ? "bg-error text-on-error shadow-cta"
+                    : "bg-primary-container text-on-primary-container shadow-cta"
+                  : isSlaTab && count > 0
+                    ? "border border-error/50 bg-error-container/50 text-error hover:bg-error-container"
+                    : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
               }`}
             >
               {t.label}
-              <span className={active ? "opacity-80" : "text-on-surface-variant"}>{count}</span>
+              <span
+                className={`rounded-full px-1.5 py-0.2 text-label-xs ${
+                  active
+                    ? "bg-black/20 text-inherit"
+                    : isSlaTab && count > 0
+                      ? "bg-error text-on-error"
+                      : "bg-surface-container text-on-surface-variant"
+                }`}
+              >
+                {count}
+              </span>
             </button>
           );
         })}
       </div>
+
+      {/* Lọc/gom nhóm theo toà nhà: chỉ Superadmin điều phối giao hàng theo khu vực toàn quán. */}
+      {isAdmin && buildings.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-card-lg bg-surface-container-lowest p-3 shadow-card">
+          <Building2 size={16} strokeWidth={2.2} className="shrink-0 text-on-surface-variant" />
+          <select
+            value={buildingFilter}
+            onChange={(e) => setBuildingFilter(e.target.value)}
+            className="min-h-[40px] rounded-card border border-outline-variant bg-surface-container-lowest px-2.5 text-label-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+          >
+            <option value="all">Tất cả toà nhà</option>
+            {buildings.map((b) => (
+              <option key={b} value={b}>
+                Toà {b}
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={groupByBuilding}
+            onClick={() => setGroupByBuilding((v) => !v)}
+            className={`ml-auto inline-flex min-h-[40px] items-center gap-1.5 rounded-full px-3 text-label-sm font-semibold transition-colors ${
+              groupByBuilding
+                ? "bg-primary-container text-on-primary-container"
+                : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
+            }`}
+          >
+            <Layers size={14} strokeWidth={2.4} />
+            Gom nhóm theo toà nhà
+          </button>
+        </div>
+      )}
 
       {state.loading ? (
         <Skeleton className="h-64 w-full rounded-card" />
@@ -138,52 +395,66 @@ export default function AdminOrdersPage() {
             {visible.length === 0 ? (
               <EmptyState
                 icon="🧾"
-                title="Không có đơn nào ở mục này"
-                description="Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
+                title={tab === "sla_overdue" ? "Tuyệt vời! Không có đơn nào trễ hạn" : "Không có đơn nào ở mục này"}
+                description={
+                  tab === "sla_overdue"
+                    ? "Mọi đơn hàng đều được xử lý và giao đúng hạn mức thời gian."
+                    : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
+                }
               />
+            ) : groupedByBuilding ? (
+              <div className="flex flex-col gap-4">
+                {groupedByBuilding.map(([building, buildingOrders]) => (
+                  <div key={building}>
+                    <div className="flex items-center gap-2 px-1 pb-1.5">
+                      <Building2 size={14} strokeWidth={2.4} className="text-on-surface-variant" />
+                      <p className="text-label-sm font-bold uppercase tracking-wide text-on-surface-variant">
+                        Toà {building}
+                      </p>
+                      <span className="rounded-full bg-surface-container px-1.5 py-0.2 text-label-xs text-on-surface-variant">
+                        {buildingOrders.length}
+                      </span>
+                    </div>
+                    <ul className="flex flex-col divide-y divide-outline-variant">
+                      {buildingOrders.map((order) => (
+                        <OrderRow
+                          key={order.id}
+                          order={order}
+                          now={now}
+                          selected={order.id === selectedId}
+                          onSelect={() => setSelectedId(order.id)}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             ) : (
               <ul className="flex flex-col divide-y divide-outline-variant">
                 {visible.map((order) => (
-                  <li key={order.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(order.id)}
-                      aria-current={order.id === selectedId}
-                      className={`flex w-full min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1 rounded-card px-2 py-3 text-left transition-colors ${
-                        order.id === selectedId
-                          ? "bg-surface-container"
-                          : "hover:bg-surface-container-low"
-                      }`}
-                    >
-                      <span className="font-mono text-label-md text-on-surface">
-                        {order.order_code}
-                      </span>
-                      <OrderStatusBadge status={order.status} />
-
-                      <span className="min-w-0 flex-1 truncate text-body-sm text-on-surface-variant">
-                        {order.customer_name} · {order.building}
-                        {order.room ? `-${order.room}` : ""}
-                      </span>
-
-                      <span className="text-label-md text-primary">
-                        {formatVnd(order.total_amount)}
-                      </span>
-                      <span className="text-label-sm text-on-surface-variant">
-                        {formatTime(order.created_at)}
-                      </span>
-                    </button>
-                  </li>
+                  <OrderRow
+                    key={order.id}
+                    order={order}
+                    now={now}
+                    selected={order.id === selectedId}
+                    onSelect={() => setSelectedId(order.id)}
+                  />
                 ))}
               </ul>
             )}
           </section>
 
-          <aside className="w-full shrink-0 xl:w-[400px]">
+          <aside className="w-full shrink-0 xl:w-[420px]">
             {selected ? (
-              <OrderPanel order={selected} onRun={run} onClose={() => setSelectedId(null)} />
+              <OrderPanel
+                order={selected}
+                now={now}
+                onRun={run}
+                onClose={() => setSelectedId(null)}
+              />
             ) : (
               <div className="rounded-card-lg border border-dashed border-outline-variant p-6 text-center text-body-sm text-on-surface-variant">
-                Chọn một đơn để xem món, địa chỉ giao và đổi trạng thái.
+                Chọn một đơn để xem chi tiết món, địa chỉ giao, thời gian SLA và chuyển trạng thái.
               </div>
             )}
           </aside>
@@ -195,43 +466,83 @@ export default function AdminOrdersPage() {
 
 function OrderPanel({
   order,
+  now,
   onRun,
   onClose,
 }: {
   order: AdminOrder;
+  now: number;
   onRun: (action: () => Promise<unknown>, okMessage: string) => Promise<void>;
   onClose: () => void;
 }) {
   const next = NEXT[order.status];
+  // Đơn VietQR chỉ được đẩy tới khi webhook đã xác nhận tiền về — tránh làm đồ
+  // cho đơn chưa trả rồi mới phát hiện khách bỏ ngang.
+  const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
   const canCancel = order.status !== "completed" && order.status !== "cancelled";
+  const sla = getOrderSla(order, now);
+  const isFinished = order.status === "completed" || order.status === "cancelled";
 
   return (
     <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-4 shadow-card">
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-2 border-b border-outline-variant/60 pb-3">
         <div>
-          <p className="font-mono text-label-lg text-on-surface">{order.order_code}</p>
-          <p className="text-label-sm text-on-surface-variant">{formatTime(order.created_at)}</p>
+          <p className="font-mono text-headline-sm font-bold text-on-surface">{order.order_code}</p>
+          <p className="text-label-sm text-on-surface-variant">
+            Đặt lúc: {formatTime(order.created_at)}
+          </p>
         </div>
         <OrderStatusBadge status={order.status} />
       </div>
 
+      {/* Cảnh báo SLA chi tiết khi đơn bị chậm hoặc trễ */}
+      {!isFinished && sla.level !== "normal" && (
+        <div
+          className={`flex items-start gap-2.5 rounded-card p-3 text-label-sm font-medium ${
+            sla.level === "critical"
+              ? "border border-error bg-error-container text-on-error-container"
+              : "border border-amber-400 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <AlertTriangle
+            size={18}
+            className={`shrink-0 mt-0.5 ${
+              sla.level === "critical" ? "text-error animate-bounce" : "text-amber-600"
+            }`}
+            strokeWidth={2.5}
+          />
+          <div>
+            <p className="font-bold">
+              {sla.level === "critical"
+                ? `⚠️ Đơn đã trôi qua ${sla.elapsedMinutes} phút (Vượt ngưỡng SLA 20p)!`
+                : `⏳ Đơn đã trôi qua ${sla.elapsedMinutes} phút (Ngưỡng cảnh báo 15p).`}
+            </p>
+            <p className="mt-0.5 text-label-xs opacity-90">
+              Vui lòng ưu tiên làm đồ và giao ngay cho khách để tránh đánh giá tiêu cực.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="rounded-card bg-surface-container-low p-3">
-        <p className="text-label-md text-on-surface">{order.customer_name}</p>
+        <p className="text-label-md font-bold text-on-surface">{order.customer_name}</p>
         <a
           href={`tel:${order.customer_phone}`}
-          className="mt-0.5 inline-flex min-h-[44px] items-center gap-1.5 text-label-md text-primary"
+          className="mt-0.5 inline-flex min-h-[44px] items-center gap-1.5 text-label-md font-semibold text-primary hover:underline"
         >
           <Phone size={14} strokeWidth={2.4} />
           {order.customer_phone}
         </a>
         <p className="text-body-sm text-on-surface-variant">
-          Toà {order.building}
+          Toà <strong className="text-on-surface">{order.building}</strong>
           {order.floor ? ` · Tầng ${order.floor}` : ""}
           {order.room ? ` · Phòng ${order.room}` : ""}
           {order.class_name ? ` · Lớp ${order.class_name}` : ""}
         </p>
         {order.delivery_note && (
-          <p className="mt-1 text-body-sm italic text-on-surface-variant">{order.delivery_note}</p>
+          <p className="mt-1.5 rounded-card-sm bg-surface-container px-2.5 py-1.5 text-body-sm italic text-on-surface">
+            “{order.delivery_note}”
+          </p>
         )}
       </div>
 
@@ -239,9 +550,9 @@ function OrderPanel({
         {order.order_items.map((item) => {
           return (
             <li key={item.id} className="flex items-start gap-2 py-2">
-              <span className="text-label-md text-on-surface">{item.quantity}×</span>
+              <span className="text-label-md font-bold text-on-surface">{item.quantity}×</span>
               <div className="min-w-0 flex-1">
-                <p className="text-body-md text-on-surface">{item.product_name}</p>
+                <p className="text-body-md font-semibold text-on-surface">{item.product_name}</p>
                 {item.options.length > 0 && (
                   <p className="text-body-sm text-on-surface-variant">
                     {item.options.map((o) => o.option_name).join(", ")}
@@ -256,7 +567,7 @@ function OrderPanel({
                   <p className="text-body-sm italic text-on-surface-variant">“{item.item_note}”</p>
                 )}
               </div>
-              <span className="shrink-0 text-label-md text-on-surface">
+              <span className="shrink-0 text-label-md font-bold text-on-surface">
                 {formatVnd(item.line_total)}
               </span>
             </li>
@@ -274,12 +585,14 @@ function OrderPanel({
         )}
         <Row label="Phí giao" value={order.shipping_fee > 0 ? formatVnd(order.shipping_fee) : "Miễn phí"} />
         <div className="mt-1 flex items-center justify-between border-t border-outline-variant pt-2">
-          <span className="text-label-lg text-on-surface">Tổng thu</span>
-          <span className="text-headline-sm text-primary">{formatVnd(order.total_amount)}</span>
+          <span className="text-label-lg font-bold text-on-surface">Tổng thu</span>
+          <span className="text-headline-sm font-extrabold text-primary">{formatVnd(order.total_amount)}</span>
         </div>
         <p className="text-label-sm text-on-surface-variant">
-          {order.payment_method === "cod" ? "Tiền mặt khi nhận" : "Chuyển khoản VietQR"} ·{" "}
-          {order.payment_status === "paid" ? "đã thanh toán" : "chưa thanh toán"}
+          {order.payment_method === "cod" ? "Tiền mặt khi nhận (COD)" : "Chuyển khoản VietQR"} ·{" "}
+          <strong className={order.payment_status === "paid" ? "text-secondary font-bold" : "text-on-surface"}>
+            {order.payment_status === "paid" ? "Đã thanh toán" : "Chưa thanh toán"}
+          </strong>
         </p>
       </div>
 
@@ -291,25 +604,34 @@ function OrderPanel({
 
       <div className="flex flex-col gap-2">
         {next && (
-          <button
-            type="button"
-            onClick={() =>
-              void onRun(
-                () => setOrderStatus(order.id, next.status),
-                `Đơn ${order.order_code}: ${STATUS_LABEL[next.status]}.`,
-              )
-            }
-            className="min-h-[44px] rounded-card bg-inverse-surface px-4 text-label-lg text-inverse-on-surface"
-          >
-            {next.label}
-          </button>
+          <>
+            <button
+              type="button"
+              disabled={blockedUnpaidPayos}
+              onClick={() =>
+                void onRun(
+                  () => setOrderStatus(order.id, next.status),
+                  `Đơn ${order.order_code}: ${STATUS_LABEL[next.status]}.`,
+                )
+              }
+              className="min-h-[44px] rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+            >
+              {next.label}
+            </button>
+            {blockedUnpaidPayos && (
+              <p className="text-body-sm font-medium text-error">
+                Đơn VietQR chưa nhận được tiền — chờ khách thanh toán xong mới duyệt được.
+              </p>
+            )}
+          </>
         )}
 
-        {order.payment_status !== "paid" && order.status !== "cancelled" && (
+        {/* Chỉ đơn COD mới cần nhân viên bấm tay — đơn PayOS được webhook tự đánh dấu paid. */}
+        {order.payment_method === "cod" && order.payment_status !== "paid" && order.status !== "cancelled" && (
           <button
             type="button"
             onClick={() => void onRun(() => markOrderPaid(order.id), "Đã ghi nhận thanh toán.")}
-            className="min-h-[44px] rounded-card border border-outline-variant text-label-md text-on-surface transition-colors hover:bg-surface-container"
+            className="min-h-[44px] rounded-card border border-outline-variant text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container"
           >
             Đã thu tiền
           </button>
@@ -343,7 +665,83 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-on-surface-variant">{label}</span>
-      <span className="text-on-surface">{value}</span>
+      <span className="font-medium text-on-surface">{value}</span>
     </div>
   );
 }
+
+/** 1 dòng đơn trong hàng đợi — tách khỏi AdminOrdersPage để dùng chung cho cả danh sách phẳng lẫn danh sách gom theo toà nhà. */
+function OrderRow({
+  order,
+  now,
+  selected,
+  onSelect,
+}: {
+  order: AdminOrder;
+  now: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const sla = getOrderSla(order, now);
+  const isFinished = order.status === "completed" || order.status === "cancelled";
+
+  // Định kiểu khung cảnh báo SLA cho từng thẻ đơn
+  let alertCardClass = "hover:bg-surface-container-low";
+  if (selected) {
+    alertCardClass = "bg-surface-container ring-2 ring-primary/40";
+  } else if (!isFinished) {
+    if (sla.level === "critical") {
+      alertCardClass = "border-l-4 border-l-error bg-error-container/30 hover:bg-error-container/50";
+    } else if (sla.level === "warning") {
+      alertCardClass = "border-l-4 border-l-amber-500 bg-amber-50/50 hover:bg-amber-100/50";
+    }
+  }
+
+  return (
+    <li className="py-1">
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={selected}
+        className={`flex w-full min-h-[48px] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-card px-3 py-3 text-left transition-all ${alertCardClass}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-label-md font-bold text-on-surface">{order.order_code}</span>
+          <OrderStatusBadge status={order.status} />
+        </div>
+
+        {/* Huy hiệu bộ đếm thời gian SLA trực tiếp trên thẻ */}
+        {!isFinished ? (
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-label-xs font-bold ${
+              sla.level === "critical"
+                ? "bg-error text-on-error animate-pulse shadow-sm"
+                : sla.level === "warning"
+                  ? "bg-amber-500 text-white shadow-sm"
+                  : "bg-surface-container-high text-on-surface-variant"
+            }`}
+          >
+            {sla.level === "critical" ? (
+              <AlertTriangle size={12} strokeWidth={2.6} />
+            ) : sla.level === "warning" ? (
+              <Flame size={12} strokeWidth={2.4} />
+            ) : (
+              <Clock size={12} strokeWidth={2.2} />
+            )}
+            {sla.label}
+          </span>
+        ) : (
+          <span className="text-label-xs text-on-surface-variant">{formatTime(order.created_at)}</span>
+        )}
+
+        <span className="min-w-0 flex-1 truncate text-body-sm text-on-surface-variant">
+          {order.customer_name} · Toà {order.building}
+          {order.room ? `-${order.room}` : ""}
+        </span>
+
+        <span className="text-label-md font-bold text-primary">{formatVnd(order.total_amount)}</span>
+      </button>
+    </li>
+  );
+}
+

@@ -1,12 +1,27 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, CalendarDays, Check, Clock, Copy, RefreshCw, Search, X } from "lucide-react";
+import { motion } from "motion/react";
+import {
+  ArrowRight,
+  CalendarDays,
+  Check,
+  Clock,
+  Copy,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
 import EmptyState from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
-import { OrderStatusBadge } from "@/components/order/OrderStatus";
+import { OrderStatusBadge, STATUS_LABEL } from "@/components/order/OrderStatus";
+import OrderStatusFilter, { type StatusFilter } from "@/components/order/OrderStatusFilter";
+import OrderDateRangeFilter, { describeOrderDateRange } from "@/components/order/OrderDateRangeFilter";
+import type { Tables } from "@/types/database";
 import { useRecentOrderDetails } from "@/hooks/useRecentOrderDetails";
+import { useOrderDateRangeParam } from "@/hooks/useOrderDateRangeParam";
 import { copyText } from "@/lib/clipboard";
-import { formatClock, formatDate, formatVnd } from "@/lib/format";
+import { formatClock, formatDate, formatVnd, toIsoDate } from "@/lib/format";
+import { isWithinOrderDateRange } from "@/lib/queries";
 import { useRecentOrders } from "@/store/recentOrders";
 import { toast } from "@/store/toast";
 
@@ -23,11 +38,53 @@ export default function OrdersPage() {
   const orders = useRecentOrders((s) => s.orders);
   const forget = useRecentOrders((s) => s.forget);
 
+  const todayIso = toIsoDate(new Date());
+
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [filter, setFilter] = useState<StatusFilter>("all");
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Bộ lọc khoảng ngày lưu trên URL (?range=all hoặc ?from=...&to=...) để
+  // reload/chia sẻ link vẫn giữ đúng bộ lọc. Chưa có gì trên URL -> mặc định
+  // "hôm nay", không hiện dồn hết mọi ngày như trước.
+  const [rangeParam, setRange] = useOrderDateRangeParam();
+  const range = rangeParam ?? { from: todayIso, to: todayIso };
 
   const codes = orders.map((o) => o.code);
   const details = useRecentOrderDetails(codes);
+
+  /**
+   * Ghép mã đã lưu với trạng thái vừa tra được.
+   * `undefined` = chưa tra xong (hiện skeleton), `null` = tra không ra.
+   */
+  const rows = orders.map((saved) => ({ saved, order: details.data?.[saved.code] }));
+
+  const counts = useMemo(() => {
+    const next: Partial<Record<Tables<"orders">["status"], number>> = {};
+    for (const { order } of rows) {
+      if (order) next[order.status] = (next[order.status] ?? 0) + 1;
+    }
+    return next;
+    // rows dựng lại mỗi lần render; chỉ cần tính lại khi dữ liệu đổi.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details.data, orders]);
+
+  /**
+   * Đơn cuối cùng của một trạng thái có thể biến mất giữa chừng (bấm Cập nhật
+   * thấy đơn đã sang trạng thái khác, hoặc bấm X bỏ khỏi danh sách). Lúc đó
+   * pill đang chọn không còn, phải rơi về "Tất cả" thay vì hiện danh sách rỗng.
+   */
+  useEffect(() => {
+    if (filter !== "all" && details.data && !counts[filter]) setFilter("all");
+  }, [filter, counts, details.data]);
+
+  const matched = rows.filter(({ order, saved }) => {
+    if (filter !== "all" && order?.status !== filter) return false;
+    const when = order?.created_at ?? saved.savedAt;
+    return isWithinOrderDateRange(when, range);
+  });
+  const filterLabel = filter === "all" ? null : STATUS_LABEL[filter];
 
   function lookup() {
     const value = code.trim().toUpperCase();
@@ -43,6 +100,17 @@ export default function OrdersPage() {
       setTimeout(() => setCopied((c) => (c === orderCode ? null : c)), 2000);
     } else {
       toast.error("Không sao chép được, bạn giữ để bôi đen mã nhé.");
+    }
+  }
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await details.reload();
+      toast.success("Đã cập nhật trạng thái đơn hàng");
+    } finally {
+      setTimeout(() => setRefreshing(false), 650);
     }
   }
 
@@ -81,19 +149,46 @@ export default function OrdersPage() {
 
       <div className="mb-2 mt-7 flex items-center justify-between">
         <h2 className="text-label-md uppercase tracking-wider text-on-surface-variant">
-          Đơn gần đây
+          Đơn {describeOrderDateRange(range).toLowerCase()}
+          {matched.length > 0 && ` (${matched.length})`}
         </h2>
         {orders.length > 0 && (
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.92 }}
             type="button"
-            onClick={details.reload}
-            className="flex items-center gap-1 text-label-sm font-bold text-secondary"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-1.5 rounded-full bg-secondary-container px-3 py-1 text-label-sm font-bold text-on-secondary-container shadow-sm transition-colors hover:bg-secondary-container/80 active:opacity-90 disabled:opacity-75"
           >
-            <RefreshCw size={13} strokeWidth={2.6} />
+            <motion.span
+              animate={refreshing ? { rotate: 360 } : { rotate: 0 }}
+              transition={{ duration: 0.65, ease: "easeInOut" }}
+              className="grid place-items-center"
+            >
+              <RefreshCw size={13} strokeWidth={2.6} />
+            </motion.span>
             Cập nhật
-          </button>
+          </motion.button>
         )}
       </div>
+
+      {orders.length > 0 && (
+        <div className="mb-3">
+          <OrderDateRangeFilter value={range} onChange={setRange} />
+        </div>
+      )}
+
+      {orders.length > 0 && (
+        <div className="mb-3">
+          <OrderStatusFilter
+            counts={counts}
+            total={rows.length}
+            value={filter}
+            onChange={setFilter}
+          />
+        </div>
+      )}
 
       {orders.length === 0 ? (
         <EmptyState
@@ -109,11 +204,25 @@ export default function OrdersPage() {
             </Link>
           }
         />
+      ) : matched.length === 0 ? (
+        <EmptyState
+          icon="🔍"
+          title={
+            filterLabel
+              ? `Không có đơn ${filterLabel.toLowerCase()} ${describeOrderDateRange(range).toLowerCase()}`
+              : `Không có đơn ${describeOrderDateRange(range).toLowerCase()}`
+          }
+          description={
+            filterLabel
+              ? "Bấm Tất cả để xem lại mọi trạng thái, hoặc đổi khoảng ngày ở trên."
+              : "Đổi khoảng ngày ở trên, hoặc bấm Tất cả để xem lại toàn bộ đơn."
+          }
+        />
       ) : (
         <ul className="flex flex-col gap-3">
-          {orders.map((saved, index) => {
-            const order = details.data?.[index] ?? null;
-            const loading = details.loading && !details.data;
+          {matched.map(({ saved, order }) => {
+            // Mã vừa thêm mà lần tra chưa trả về: chưa biết gì, cứ hiện skeleton.
+            const loading = order === undefined;
             const when = order?.created_at ?? saved.savedAt;
             const justCopied = copied === saved.code;
 
