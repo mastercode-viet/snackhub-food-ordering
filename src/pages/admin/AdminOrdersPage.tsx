@@ -12,7 +12,7 @@ import {
   Timer,
 } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
-import { useOrderNotification } from "@/hooks/useOrderNotification";
+import { useAdminOrderAlerts } from "@/hooks/useAdminOrderAlerts";
 import OrderSoundToggle from "@/components/admin/OrderSoundToggle";
 import type { AdminOutletContext } from "@/routes/AdminLayout";
 import { supabase } from "@/lib/supabase";
@@ -100,7 +100,7 @@ export function getOrderSla(
 export default function AdminOrdersPage() {
   const { isAdmin } = useOutletContext<AdminOutletContext>();
   const state = useAsync(() => fetchAdminOrders(), []);
-  const { soundEnabled, enableSound, disableSound } = useOrderNotification(() => state.reload());
+  const { soundEnabled, enableSound, disableSound } = useAdminOrderAlerts();
   const [tab, setTab] = useState<OrderStatus | "all" | "sla_overdue">("pending_confirmation");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Date.now());
@@ -475,10 +475,22 @@ function OrderPanel({
   onRun: (action: () => Promise<unknown>, okMessage: string) => Promise<void>;
   onClose: () => void;
 }) {
+  const { email, isAdmin, staffId } = useOutletContext<AdminOutletContext>();
+  const [cancelling, setCancelling] = useState(false);
   const next = NEXT[order.status];
   // Đơn VietQR chỉ được đẩy tới khi webhook đã xác nhận tiền về — tránh làm đồ
   // cho đơn chưa trả rồi mới phát hiện khách bỏ ngang.
   const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
+  // "Thu tiền trước, Hoàn tất sau" — áp cho MỌI phương thức thanh toán, không
+  // riêng payos. DB (orders_stamp_status) đã chặn cứng ở tầng trigger; disable
+  // ở đây chỉ để khỏi bấm-rồi-toast-lỗi.
+  const blockedUnpaidComplete = next?.status === "completed" && order.payment_status !== "paid";
+  // "Người giao là người thu tiền" — đơn đã có người nhận giao (assigned_staff_id
+  // set lúc chuyển sang 'delivering') thì chỉ đúng người đó hoặc admin mới bấm
+  // "Đã thu tiền" được. Đơn chưa qua bước giao (assigned_staff_id còn null) thì
+  // không chặn — DB cũng xử lý y hệt logic này.
+  const blockedNotAssignedStaff =
+    !isAdmin && order.assigned_staff_id !== null && order.assigned_staff_id !== staffId;
   const canCancel = order.status !== "completed" && order.status !== "cancelled";
   const sla = getOrderSla(order, now);
   const isFinished = order.status === "completed" || order.status === "cancelled";
@@ -594,6 +606,18 @@ function OrderPanel({
             {order.payment_status === "paid" ? "Đã thanh toán" : "Chưa thanh toán"}
           </strong>
         </p>
+        {order.assigned_staff_id && (
+          <p className="text-label-sm text-on-surface-variant">
+            Người giao:{" "}
+            <strong className="text-on-surface">{order.assigned_staff?.full_name ?? "—"}</strong>
+          </p>
+        )}
+        {order.payment_method === "cod" && order.payment_status === "paid" && (
+          <p className="text-label-sm text-on-surface-variant">
+            Thu bởi:{" "}
+            <strong className="text-on-surface">{order.collected_by_staff?.full_name ?? "—"}</strong>
+          </p>
+        )}
       </div>
 
       {order.status === "cancelled" && order.cancel_reason && (
@@ -607,7 +631,7 @@ function OrderPanel({
           <>
             <button
               type="button"
-              disabled={blockedUnpaidPayos}
+              disabled={blockedUnpaidPayos || blockedUnpaidComplete}
               onClick={() =>
                 void onRun(
                   () => setOrderStatus(order.id, next.status),
@@ -623,41 +647,137 @@ function OrderPanel({
                 Đơn VietQR chưa nhận được tiền — chờ khách thanh toán xong mới duyệt được.
               </p>
             )}
+            {!blockedUnpaidPayos && blockedUnpaidComplete && (
+              <p className="text-body-sm font-medium text-error">
+                Đơn chưa xác nhận thanh toán — thu tiền xong mới Hoàn tất được.
+              </p>
+            )}
           </>
         )}
 
         {/* Chỉ đơn COD mới cần nhân viên bấm tay — đơn PayOS được webhook tự đánh dấu paid. */}
+        {/* Xác nhận gắn với danh tính phiên đăng nhập hiện tại — collected_by_staff_id
+            do trigger DB tự gắn auth.uid() của người gọi, không đọc từ client, nhưng
+            người bấm phải thấy rõ mình đang xác nhận DƯỚI TÊN AI trước khi chốt số
+            tiền, tránh bấm nhầm hộ ca trước/ca sau. */}
         {order.payment_method === "cod" && order.payment_status !== "paid" && order.status !== "cancelled" && (
-          <button
-            type="button"
-            onClick={() => void onRun(() => markOrderPaid(order.id), "Đã ghi nhận thanh toán.")}
-            className="min-h-[44px] rounded-card border border-outline-variant text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container"
-          >
-            Đã thu tiền
-          </button>
+          <>
+            <button
+              type="button"
+              disabled={blockedNotAssignedStaff}
+              onClick={() => {
+                const ok = window.confirm(
+                  `Xác nhận đã nhận đủ ${formatVnd(order.total_amount)} tiền mặt cho đơn ${order.order_code}?\n\nGhi nhận dưới tài khoản: ${email}`,
+                );
+                if (!ok) return;
+                void onRun(() => markOrderPaid(order.id), "Đã ghi nhận thanh toán.");
+              }}
+              className="min-h-[44px] rounded-card border border-outline-variant text-label-md font-semibold text-on-surface transition-colors hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Đã thu tiền
+            </button>
+            {blockedNotAssignedStaff && (
+              <p className="text-body-sm font-medium text-error">
+                Đơn này do {order.assigned_staff?.full_name ?? "nhân viên khác"} giao — chỉ người
+                đó mới xác nhận thu tiền được.
+              </p>
+            )}
+          </>
         )}
 
         {canCancel && (
           <button
             type="button"
-            onClick={() => {
-              const reason = prompt(`Lý do huỷ đơn ${order.order_code}?`);
-              if (reason === null) return;
-              const trimmed = reason.trim();
-              if (!trimmed) {
-                toast.error("Cần ghi lý do huỷ để khách hiểu vì sao.");
-                return;
-              }
-              onClose();
-              void onRun(() => cancelOrderAsAdmin(order.id, trimmed), "Đã huỷ đơn.");
-            }}
+            onClick={() => setCancelling(true)}
             className="min-h-[44px] rounded-card border border-outline-variant text-label-md text-error transition-colors hover:bg-error-container"
           >
             Huỷ đơn
           </button>
         )}
       </div>
+
+      {cancelling && (
+        <CancelOrderModal
+          order={order}
+          onClose={() => setCancelling(false)}
+          onConfirm={(reason) => {
+            setCancelling(false);
+            onClose();
+            void onRun(() => cancelOrderAsAdmin(order.id, reason), "Đã huỷ đơn.");
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/**
+ * Bắt buộc nhập lý do — không có lối tắt "OK trống" như prompt() cũ. Đơn đã
+ * `payment_status='paid'` thì tiền THẬT đã vào tài khoản quán, huỷ xong khách
+ * cần được hoàn tiền tay qua chuyển khoản/COD ngược lại, nên hiện cảnh báo
+ * riêng để Admin không huỷ nhầm mà quên xử lý hoàn tiền.
+ */
+function CancelOrderModal({
+  order,
+  onClose,
+  onConfirm,
+}: {
+  order: AdminOrder;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const wasPaid = order.payment_status === "paid";
+  const trimmed = reason.trim();
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-on-surface/40 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="w-full max-w-md rounded-card-lg bg-surface-container-lowest p-5 shadow-sheet">
+        <h3 className="text-headline-sm font-bold text-on-surface">Huỷ đơn {order.order_code}</h3>
+
+        {wasPaid && (
+          <p className="mt-2 rounded-card bg-error-container px-3.5 py-2.5 text-body-sm font-medium text-on-error-container">
+            Đơn này đã thu {formatVnd(order.total_amount)} — huỷ xong Admin cần chủ động hoàn tiền
+            cho khách. Lý do huỷ sẽ hiện kèm số điện thoại hỗ trợ hoàn tiền trên trang đơn của khách.
+          </p>
+        )}
+
+        <label className="mt-4 block text-label-sm font-semibold text-on-surface-variant" htmlFor="cancel-reason">
+          Lý do huỷ (bắt buộc)
+        </label>
+        <textarea
+          id="cancel-reason"
+          autoFocus
+          rows={3}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Vd: Hết nguyên liệu, khách yêu cầu huỷ, đặt nhầm..."
+          className="mt-1.5 w-full rounded-card border border-outline-variant px-3.5 py-2.5 text-body-md text-on-surface outline-none focus:border-primary"
+        />
+
+        <div className="mt-4 flex gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-11 flex-1 rounded-card border border-outline-variant text-label-md font-semibold text-on-surface-variant"
+          >
+            Đóng
+          </button>
+          <button
+            type="button"
+            disabled={!trimmed}
+            onClick={() => onConfirm(trimmed)}
+            className="h-11 flex-1 rounded-card bg-error text-label-md font-bold text-on-error disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Xác nhận huỷ
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

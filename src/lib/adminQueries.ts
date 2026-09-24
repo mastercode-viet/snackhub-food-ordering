@@ -145,12 +145,30 @@ export type AdminOrder = Pick<
   | "cancelled_at"
   | "completed_at"
   | "created_at"
-> & { order_items: OrderItemView[] };
+  | "collected_by_staff_id"
+  | "assigned_staff_id"
+> & {
+  order_items: OrderItemView[];
+  /**
+   * Null nếu chưa thu (payment_status khác 'paid'), hoặc nếu người xem là
+   * staff thường và không phải người đã thu — RLS staff_profiles chỉ cho
+   * đọc hồ sơ CHÍNH MÌNH, admin mới thấy tên của mọi nhân viên.
+   */
+  collected_by_staff: Pick<Tables<"staff_profiles">, "id" | "full_name"> | null;
+  /** Nhân viên nhận giao — gắn tự động khi đơn chuyển sang 'delivering'. */
+  assigned_staff: Pick<Tables<"staff_profiles">, "id" | "full_name"> | null;
+};
 
+// orders có 2 FK riêng biệt tới staff_profiles (collected_by_staff_id VÀ
+// assigned_staff_id) nên PostgREST bắt buộc chỉ rõ constraint qua "!tên_fk" —
+// nếu chỉ ghi "staff_profiles(...)" trần sẽ lỗi "more than one relationship
+// found" vì không biết embed theo cột nào.
 const ORDER_COLUMNS =
   "id, order_code, status, payment_method, payment_status, customer_name, customer_phone, " +
   "building, floor, room, class_name, delivery_note, subtotal, discount_amount, discount_code, " +
   "shipping_fee, total_amount, cancel_reason, cancelled_at, completed_at, created_at, " +
+  "collected_by_staff_id, collected_by_staff:staff_profiles!orders_collected_by_staff_id_fkey(id, full_name), " +
+  "assigned_staff_id, assigned_staff:staff_profiles!orders_assigned_staff_id_fkey(id, full_name), " +
   "order_items(id, product_id, product_name, product_image_url, options, combo_id, " +
   "combo_items_snapshot, unit_price, quantity, line_total, item_note)";
 
@@ -163,6 +181,17 @@ export async function fetchAdminOrders(limit = 100): Promise<AdminOrder[]> {
 
   if (error) throw error;
   return data as unknown as AdminOrder[];
+}
+
+/** Đếm nhanh đơn "chờ xác nhận" — dùng cho huy hiệu (badge) trên menu Đơn hàng, không kéo cả danh sách. */
+export async function fetchPendingOrderCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "pending_confirmation");
+
+  if (error) throw error;
+  return count ?? 0;
 }
 
 /**

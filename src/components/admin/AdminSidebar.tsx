@@ -10,13 +10,21 @@ import { useAdminSidebar } from "@/hooks/useAdminSidebar";
  * ngoài overlay hoặc bấm 1 mục điều hướng. Không dùng border — tách khỏi nền
  * bằng shadow-sheet (CLAUDE.md mục 3: card/sheet tách nền bằng bóng, không viền).
  */
-export default function AdminSidebar({ isAdmin, isStaff }: { isAdmin: boolean; isStaff: boolean }) {
+export default function AdminSidebar({
+  isAdmin,
+  isStaff,
+  pendingOrderCount,
+}: {
+  isAdmin: boolean;
+  isStaff: boolean;
+  pendingOrderCount: number;
+}) {
   const { isOpen, close } = useAdminSidebar();
 
   return (
     <>
       <aside className="hidden w-60 shrink-0 flex-col bg-surface-container-lowest shadow-sheet lg:flex">
-        <SidebarContent isAdmin={isAdmin} isStaff={isStaff} />
+        <SidebarContent isAdmin={isAdmin} isStaff={isStaff} pendingOrderCount={pendingOrderCount} />
       </aside>
 
       <AnimatePresence>
@@ -52,7 +60,7 @@ export default function AdminSidebar({ isAdmin, isStaff }: { isAdmin: boolean; i
                   <X size={18} strokeWidth={2.2} />
                 </button>
               </div>
-              <SidebarContent isAdmin={isAdmin} isStaff={isStaff} />
+              <SidebarContent isAdmin={isAdmin} isStaff={isStaff} pendingOrderCount={pendingOrderCount} />
             </motion.aside>
           </div>
         )}
@@ -62,7 +70,15 @@ export default function AdminSidebar({ isAdmin, isStaff }: { isAdmin: boolean; i
 }
 
 /** Nội dung sidebar dùng chung cho cả bản cố định (desktop) và Drawer (mobile) — tránh chép lại danh sách mục điều hướng 2 lần. */
-function SidebarContent({ isAdmin, isStaff }: { isAdmin: boolean; isStaff: boolean }) {
+function SidebarContent({
+  isAdmin,
+  isStaff,
+  pendingOrderCount,
+}: {
+  isAdmin: boolean;
+  isStaff: boolean;
+  pendingOrderCount: number;
+}) {
   const settings = useStoreSettings();
 
   return (
@@ -81,7 +97,7 @@ function SidebarContent({ isAdmin, isStaff }: { isAdmin: boolean; isStaff: boole
         <p className="px-2 pb-1 pt-3 text-label-xs uppercase tracking-wide text-on-surface-variant">
           Quản lý
         </p>
-        <SidebarLink to="/admin/don-hang" label="Đơn hàng" />
+        <SidebarLink to="/admin/don-hang" label="Đơn hàng" badge={pendingOrderCount} />
         <SidebarLink to="/admin/thuc-don" label="Thực đơn" />
         <SidebarLink to="/admin/combos" label="Combo" />
         <SidebarLink to="/admin/khuyen-mai" label="Khuyến mãi" />
@@ -111,7 +127,7 @@ function SidebarContent({ isAdmin, isStaff }: { isAdmin: boolean; isStaff: boole
   );
 }
 
-function SidebarLink({ to, label }: { to: string; label: string }) {
+function SidebarLink({ to, label, badge }: { to: string; label: string; badge?: number }) {
   const { close } = useAdminSidebar();
 
   return (
@@ -119,13 +135,18 @@ function SidebarLink({ to, label }: { to: string; label: string }) {
       to={to}
       onClick={close}
       className={({ isActive }) =>
-        `flex min-h-[44px] items-center rounded-card px-3 text-label-md transition-colors ${isActive
+        `flex min-h-[44px] items-center justify-between gap-2 rounded-card px-3 text-label-md transition-colors ${isActive
           ? "bg-primary-container text-on-primary-container"
           : "text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
         }`
       }
     >
-      {label}
+      <span>{label}</span>
+      {!!badge && badge > 0 && (
+        <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-error px-1.5 py-0.5 text-label-xs font-bold leading-none text-on-error">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
     </NavLink>
   );
 }
