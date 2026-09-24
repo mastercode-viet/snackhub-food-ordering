@@ -7,7 +7,9 @@
 //   4. Đối chiếu số tiền nhận được với total_amount của đơn.
 //   5. Update paid dùng .neq('payment_status','paid') thay vì .eq('pending') —
 //      webhook LUÔN thắng dù cancel-payment (khách bấm back) đã lật đơn sang
-//      'cancelled' trước đó, và mở lại đơn về pending_confirmation khi ghi paid.
+//      'cancelled' trước đó.
+//   6. Trả tiền = coi như đã xác nhận đơn: status nhảy thẳng sang 'preparing',
+//      không cần Admin bấm "Xác nhận đơn" tay nữa.
 //
 // Luôn trả 200 cho các trường hợp "đã xử lý rồi" để PayOS ngừng retry.
 
@@ -99,16 +101,19 @@ Deno.serve(async (req) => {
       // bên dưới) có thể đã lật payment_status sang 'failed' và status sang
       // 'cancelled' TRƯỚC KHI event 'paid' này tới nơi — tiền đã về tài khoản
       // quán thì webhook phải luôn thắng, không được để đơn kẹt ở trạng thái huỷ
-      // trong khi tiền đã nhận. Đồng thời mở lại status + xoá dấu vết huỷ, vì với
-      // luồng payos, payment_status khác 'paid' chỉ có thể đi kèm
-      // status IN ('pending_confirmation','cancelled') — không có nhánh nào khác
-      // đẩy đơn payos đi xa hơn khi chưa paid (Admin UI khoá nút duyệt đơn qua
-      // blockedUnpaidPayos, pg_cron chỉ huỷ đơn còn pending_confirmation).
+      // trong khi tiền đã nhận.
+      //
+      // Trả tiền online = coi như đã xác nhận đơn, khỏi cần Admin bấm "Xác nhận
+      // đơn" tay: nhảy thẳng pending_confirmation/cancelled -> preparing. Không
+      // lùi một đơn đã đi xa hơn (delivering/completed) về preparing.
+      const CONFIRMED_OR_LATER = new Set(["preparing", "delivering", "completed"]);
+      const nextStatus = CONFIRMED_OR_LATER.has(order.status) ? order.status : "preparing";
+
       const { data: updated, error: upErr } = await db
         .from("orders")
         .update({
           payment_status: "paid", // paid_at do trigger DB tự đóng dấu
-          status: "pending_confirmation",
+          status: nextStatus,
           cancelled_at: null,
           cancelled_by: null,
           cancel_reason: null,

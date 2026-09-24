@@ -68,18 +68,24 @@ export function OrderStatusBadge({ status }: { status: Status }) {
  * đã bỏ hết: SnackHub chỉ có một vai trò Admin, không có shipper riêng và
  * backend không lưu toạ độ hay ETA nào. Chỉ giữ đúng 4 trạng thái có thật.
  */
+/** Số hỗ trợ hoàn tiền — cố định, hiện khi đơn đã huỷ NHƯNG tiền đã thu rồi. */
+const REFUND_HOTLINE = "0963743207";
+
 export function OrderTimeline({
   status,
   createdAt,
   completedAt,
   cancelledAt,
   cancelReason,
+  paymentStatus,
 }: {
   status: Status;
   createdAt: string;
   completedAt: string | null;
   cancelledAt: string | null;
   cancelReason: string | null;
+  /** Đơn huỷ nhưng payment_status vẫn 'paid' = tiền đã vào tay quán, cần hoàn lại. */
+  paymentStatus?: Tables<"orders">["payment_status"];
 }) {
   if (status === "cancelled") {
     return (
@@ -92,6 +98,11 @@ export function OrderTimeline({
           </p>
           {cancelledAt && (
             <p className="mt-1 text-body-sm text-on-error-container/70">{formatTime(cancelledAt)}</p>
+          )}
+          {paymentStatus === "paid" && (
+            <p className="mt-2.5 rounded-card bg-on-error-container/10 px-3 py-2 text-body-sm font-semibold text-on-error-container">
+              Liên hệ để được hoàn tiền qua số điện thoại: {REFUND_HOTLINE}
+            </p>
           )}
         </div>
       </div>

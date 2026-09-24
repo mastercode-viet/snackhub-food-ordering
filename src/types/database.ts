@@ -312,6 +312,7 @@ export type Database = {
       orders: {
         Row: {
           admin_note: string | null
+          assigned_staff_id: string | null
           building: string
           cancel_reason: string | null
           cancelled_at: string | null
@@ -355,6 +356,13 @@ export type Database = {
         // collected_by_staff_id: nhân viên đã thu tiền COD, NULL nếu chưa thu
         // hoặc thanh toán qua PayOS. Xem migration staff_rbac_phase3.
         Relationships: [
+          {
+            foreignKeyName: "orders_assigned_staff_id_fkey"
+            columns: ["assigned_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "orders_collected_by_staff_id_fkey"
             columns: ["collected_by_staff_id"]

@@ -28,6 +28,7 @@ import {
 import { buildReorder } from "@/lib/reorder";
 import { copyText } from "@/lib/clipboard";
 import { formatClock, formatDate, formatVnd } from "@/lib/format";
+import { supabase } from "@/lib/supabase";
 import { useCartStore } from "@/store/cart";
 import { useRecentOrders } from "@/store/recentOrders";
 import { toast } from "@/store/toast";
@@ -77,12 +78,26 @@ export default function OrderTrackingPage() {
     void load();
   }, [load]);
 
-  // Khách không đọc được bảng orders nên Realtime không gửi gì cho họ —
-  // phải tự hỏi lại, và chỉ hỏi khi đơn còn đang chạy.
+  // Khách không đọc được bảng orders qua RLS nên không dùng được Postgres
+  // Changes — vẫn nghe được Realtime Broadcast công khai trên kênh
+  // order:<mã đơn> (payos-webhook phát 'paid', trigger DB phát 'cancelled')
+  // để cập nhật NGAY thay vì đợi tới vòng poll tiếp theo. Poll vẫn giữ làm
+  // lưới an toàn phòng khi broadcast bị rớt (socket đứt, tab vừa mở lại...).
   useEffect(() => {
     if (!order || !ACTIVE.has(order.status)) return;
+
+    const channel = supabase
+      .channel(`order:${order.order_code}`)
+      .on("broadcast", { event: "paid" }, () => void load(true))
+      .on("broadcast", { event: "cancelled" }, () => void load(true))
+      .subscribe();
+
     const timer = setInterval(() => void load(true), POLL_MS);
-    return () => clearInterval(timer);
+
+    return () => {
+      void supabase.removeChannel(channel);
+      clearInterval(timer);
+    };
   }, [order, load]);
 
   async function handleCancel() {
@@ -270,6 +285,7 @@ export default function OrderTrackingPage() {
             completedAt={order.completed_at}
             cancelledAt={order.cancelled_at}
             cancelReason={order.cancel_reason}
+            paymentStatus={order.payment_status}
           />
         </section>
 
