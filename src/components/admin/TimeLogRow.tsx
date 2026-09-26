@@ -11,14 +11,20 @@ import {
   type TimeLog,
 } from "@/lib/staffQueries";
 
-/** Badge lệch giờ so với ca được gán — trễ vào / về sớm là điều cần lưu ý (đỏ), còn lại là bình thường (xanh). */
+/**
+ * Badge lệch giờ so với ca được gán. Đây là màn "chi tiết" nên LUÔN hiện
+ * đúng số phút lệch thật — trước đây gộp mọi lệch <=15p (SHIFT_GRACE_MINUTES)
+ * thành nhãn chung "Đúng giờ" khiến vào/ra trễ 2 phút cũng hiện "đúng giờ",
+ * che mất số liệu thật ngay trên chính màn để xem số liệu. Ngưỡng
+ * SHIFT_GRACE_MINUTES chỉ còn dùng để quyết định màu (đỏ = lệch đáng kể,
+ * khớp đúng định nghĩa "trễ ca"/"về sớm" ở bảng tổng hợp tháng bên cạnh).
+ */
 function DeviationBadge({ minutes, kind }: { minutes: number | null; kind: "checkIn" | "checkOut" }) {
   if (minutes === null) return null;
-  const isNotable = Math.abs(minutes) > SHIFT_GRACE_MINUTES;
   const isBad = kind === "checkIn" ? minutes > SHIFT_GRACE_MINUTES : minutes < -SHIFT_GRACE_MINUTES;
 
   let label: string;
-  if (!isNotable) {
+  if (minutes === 0) {
     label = kind === "checkIn" ? "Vào đúng giờ" : "Ra đúng giờ";
   } else if (minutes > 0) {
     label = kind === "checkIn" ? `Vào trễ ${minutes}p` : `Ra trễ ${minutes}p`;
