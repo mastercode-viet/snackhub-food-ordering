@@ -44,7 +44,7 @@ const PRESETS: { key: string; label: string; range: OrderDateRange }[] = [
  * Bộ lọc lịch sử đơn theo khoảng thời gian: chip nhanh (Tất cả/Hôm nay/7
  * ngày/30 ngày) + tuỳ chọn Từ ngày–Đến ngày. Tuyệt đối không dùng border —
  * tách khỏi nền bằng bg-surface-container-lowest + shadow-card theo token M3
- * của SnackHub (CLAUDE.md mục 3: "Card KHÔNG viền, tách khỏi nền bằng bóng").
+ * của Sagori (CLAUDE.md mục 3: "Card KHÔNG viền, tách khỏi nền bằng bóng").
  */
 export default function OrderDateRangeFilter({
   value,

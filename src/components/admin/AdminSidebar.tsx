@@ -114,7 +114,7 @@ function SidebarContent({
         <div className="rounded-card bg-surface-container-low p-3">
           <p className="flex items-center gap-1.5 text-label-sm text-on-surface">
             <Store size={14} strokeWidth={2.2} />
-            {settings.data?.store_name ?? "SnackHub"}
+            {settings.data?.store_name ?? "Sagori"}
           </p>
           {settings.data && (
             <p className="mt-0.5 text-label-xs text-on-surface-variant">

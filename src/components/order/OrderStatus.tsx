@@ -65,7 +65,7 @@ export function OrderStatusBadge({ status }: { status: Status }) {
  * Hành trình đơn hàng.
  *
  * Bản Stitch có tài xế, khoảng cách GPS, vòng tiến độ % và thời gian dự kiến —
- * đã bỏ hết: SnackHub chỉ có một vai trò Admin, không có shipper riêng và
+ * đã bỏ hết: Sagori chỉ có một vai trò Admin, không có shipper riêng và
  * backend không lưu toạ độ hay ETA nào. Chỉ giữ đúng 4 trạng thái có thật.
  */
 /** Số hỗ trợ hoàn tiền — cố định, hiện khi đơn đã huỷ NHƯNG tiền đã thu rồi. */

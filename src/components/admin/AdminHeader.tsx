@@ -18,7 +18,7 @@ export default function AdminHeader({ email, onSignOut }: { email: string; onSig
           <Menu size={20} strokeWidth={2.2} />
         </button>
 
-        <span className="text-label-lg text-on-surface lg:hidden">SnackHub Admin</span>
+        <span className="text-label-lg text-on-surface lg:hidden">Sagori Admin</span>
 
         <div className="ml-auto flex items-center gap-2.5">
           {storeOpen.data !== null && <StorePill open={storeOpen.data === true} />}

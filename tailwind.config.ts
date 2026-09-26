@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Design tokens của SnackHub.
+ * Design tokens của Sagori.
  *
  * ── GIÁ TRỊ MÀU KHÔNG NẰM Ở FILE NÀY ───────────────────────────────────────
  * Mọi màu khai trong `src/index.css` dưới dạng CSS variable `--color-*`, file

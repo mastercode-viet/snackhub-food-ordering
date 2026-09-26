@@ -64,7 +64,7 @@ export function StoreClosedBanner({ settings }: { settings: Tables<"store_settin
   const body =
     settings && !settings.is_open
       ? "Hôm nay quán nghỉ bán. Bạn vẫn xem menu thoải mái, quay lại đặt sau nhé!"
-      : `SnackHub chỉ nhận đơn trong khung ${
+      : `Sagori chỉ nhận đơn trong khung ${
           settings ? `${shortTime(settings.open_time)}-${shortTime(settings.close_time)}` : "giờ mở cửa"
         }. Bạn vẫn xem menu thoải mái, quay lại đặt sau nhé!`;
 

@@ -40,7 +40,7 @@ export default function AdminLoginPage() {
         </span>
         <div>
           <h1 className="text-headline-sm text-on-surface">Khu vực quản trị</h1>
-          <p className="mt-1 text-body-sm text-on-surface-variant">SnackHub · chỉ dành cho nhân viên</p>
+          <p className="mt-1 text-body-sm text-on-surface-variant">Sagori · chỉ dành cho nhân viên</p>
         </div>
       </div>
 

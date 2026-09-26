@@ -1,0 +1,1 @@
+import{r as t}from"./index-DaU9O2pX.js";const e=t.createContext(null);function o(){const r=t.useContext(e);if(!r)throw new Error("useAdminOrderAlerts phải gọi bên trong <AdminLayout>.");return r}export{e as A,o as u};
