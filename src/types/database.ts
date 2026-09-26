@@ -767,6 +767,101 @@ export type Database = {
           },
         ]
       }
+      shift_swap_requests: {
+        Row: {
+          created_at: string
+          id: string
+          reason: string | null
+          request_type: Database["public"]["Enums"]["shift_swap_request_type"]
+          requester_assignment_id: string | null
+          requester_staff_id: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          shift_end: string
+          shift_name: string
+          shift_start: string
+          status: Database["public"]["Enums"]["shift_swap_status"]
+          target_assignment_id: string | null
+          target_shift_name: string | null
+          target_staff_id: string | null
+          target_work_date: string | null
+          updated_at: string
+          work_date: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          reason?: string | null
+          request_type: Database["public"]["Enums"]["shift_swap_request_type"]
+          requester_assignment_id?: string | null
+          requester_staff_id: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          shift_end: string
+          shift_name: string
+          shift_start: string
+          status?: Database["public"]["Enums"]["shift_swap_status"]
+          target_assignment_id?: string | null
+          target_shift_name?: string | null
+          target_staff_id?: string | null
+          target_work_date?: string | null
+          updated_at?: string
+          work_date: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          reason?: string | null
+          request_type?: Database["public"]["Enums"]["shift_swap_request_type"]
+          requester_assignment_id?: string | null
+          requester_staff_id?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          shift_end?: string
+          shift_name?: string
+          shift_start?: string
+          status?: Database["public"]["Enums"]["shift_swap_status"]
+          target_assignment_id?: string | null
+          target_shift_name?: string | null
+          target_staff_id?: string | null
+          target_work_date?: string | null
+          updated_at?: string
+          work_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shift_swap_requests_requester_assignment_id_fkey"
+            columns: ["requester_assignment_id"]
+            isOneToOne: false
+            referencedRelation: "shift_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shift_swap_requests_requester_staff_id_fkey"
+            columns: ["requester_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shift_swap_requests_target_assignment_id_fkey"
+            columns: ["target_assignment_id"]
+            isOneToOne: false
+            referencedRelation: "shift_assignments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shift_swap_requests_target_staff_id_fkey"
+            columns: ["target_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       shifts: {
         Row: {
           created_at: string
@@ -1036,6 +1131,7 @@ export type Database = {
         Args: { p_order_code: string; p_reason?: string }
         Returns: Json
       }
+      cancel_shift_swap_request: { Args: { p_id: string }; Returns: undefined }
       cancel_stale_payos_orders: { Args: never; Returns: number }
       check_rate_limit: {
         Args: {
@@ -1063,6 +1159,22 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      create_shift_swap_request: {
+        Args: {
+          p_assignment_id: string
+          p_reason?: string
+          p_target_staff_id?: string
+          p_type: Database["public"]["Enums"]["shift_swap_request_type"]
+        }
+        Returns: string
+      }
+      fetch_staff_directory: {
+        Args: never
+        Returns: {
+          full_name: string
+          id: string
+        }[]
       }
       generate_order_code: { Args: never; Returns: string }
       get_order_by_code: { Args: { p_order_code: string }; Returns: Json }
@@ -1126,6 +1238,16 @@ export type Database = {
         Args: { p_discount_code_id: string }
         Returns: undefined
       }
+      resolve_shift_swap_request: {
+        Args: {
+          p_approve: boolean
+          p_id: string
+          p_note?: string
+          p_replacement_staff_id?: string
+          p_target_assignment_id?: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       cancelled_by: "customer" | "admin" | "system"
@@ -1138,6 +1260,8 @@ export type Database = {
         | "cancelled"
       payment_method: "cod" | "payos"
       payment_status: "unpaid" | "pending" | "paid" | "failed" | "refunded"
+      shift_swap_request_type: "swap" | "leave"
+      shift_swap_status: "pending" | "approved" | "rejected" | "cancelled"
       staff_role: "superadmin" | "staff"
     }
     CompositeTypes: {
@@ -1277,6 +1401,8 @@ export const Constants = {
       ],
       payment_method: ["cod", "payos"],
       payment_status: ["unpaid", "pending", "paid", "failed", "refunded"],
+      shift_swap_request_type: ["swap", "leave"],
+      shift_swap_status: ["pending", "approved", "rejected", "cancelled"],
       staff_role: ["superadmin", "staff"],
     },
   },

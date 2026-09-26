@@ -14,12 +14,16 @@ import {
   bulkAssignShift,
   createShift,
   deleteShift,
+  fetchPendingShiftSwapRequests,
   fetchShiftAssignments,
+  fetchShiftAssignmentsForStaff,
   fetchShifts,
   fetchStaffProfiles,
+  resolveShiftSwapRequest,
   updateShift,
   type Shift,
   type ShiftAssignmentWithShift,
+  type ShiftSwapRequest,
   type StaffProfile,
 } from "@/lib/staffQueries";
 
@@ -62,8 +66,9 @@ export default function AdminShiftsPage() {
             shifts: await fetchShifts(),
             staff: await fetchStaffProfiles(),
             assignments: await fetchShiftAssignments(weekStart, weekEnd),
+            pendingSwaps: await fetchPendingShiftSwapRequests(),
           }
-        : { shifts: [], staff: [], assignments: [] },
+        : { shifts: [], staff: [], assignments: [], pendingSwaps: [] },
     [weekStart, weekEnd, isAdmin],
   );
 
@@ -120,6 +125,12 @@ export default function AdminShiftsPage() {
             staff={state.data!.staff}
             assignments={state.data!.assignments}
             onRun={run}
+            onReload={state.reload}
+          />
+
+          <ShiftSwapApprovalSection
+            requests={state.data!.pendingSwaps}
+            staff={state.data!.staff}
             onReload={state.reload}
           />
         </>
@@ -393,6 +404,161 @@ function ScheduleSection({
         onRun={onRun}
       />
     </section>
+  );
+}
+
+// ── Duyệt yêu cầu đổi ca / xin nghỉ của nhân viên ───────────────────────────
+
+function ShiftSwapApprovalSection({
+  requests,
+  staff,
+  onReload,
+}: {
+  requests: ShiftSwapRequest[];
+  staff: StaffProfile[];
+  onReload: () => void;
+}) {
+  const nameById = useMemo(() => new Map(staff.map((s) => [s.id, s.full_name])), [staff]);
+
+  if (requests.length === 0) return null;
+
+  return (
+    <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
+      <h2 className="text-label-lg text-on-surface">
+        Yêu cầu đổi ca / xin nghỉ chờ duyệt ({requests.length})
+      </h2>
+      <ul className="flex flex-col divide-y divide-outline-variant">
+        {requests.map((r) => (
+          <SwapApprovalRow key={r.id} request={r} nameById={nameById} onReload={onReload} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SwapApprovalRow({
+  request,
+  nameById,
+  onReload,
+}: {
+  request: ShiftSwapRequest;
+  nameById: Map<string, string>;
+  onReload: () => void;
+}) {
+  const isSwap = request.request_type === "swap";
+  const [targetAssignmentId, setTargetAssignmentId] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Ca cụ thể của người được nhắm — nhân viên gửi yêu cầu chỉ chọn được TÊN
+  // đồng nghiệp (RLS staff_profiles không cho thấy lịch người khác), nên
+  // superadmin phải tự chọn đúng ca nào của người đó để hoàn tất đổi ca.
+  const targetAssignments = useAsync(
+    async () =>
+      isSwap && request.target_staff_id
+        ? fetchShiftAssignmentsForStaff(
+            request.target_staff_id,
+            toIsoDate(new Date()),
+            addDays(toIsoDate(new Date()), 60),
+          )
+        : [],
+    [request.id],
+  );
+
+  async function approve() {
+    if (isSwap && !targetAssignmentId) {
+      toast.error("Chọn ca của người được đổi trước khi duyệt.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await resolveShiftSwapRequest({
+        id: request.id,
+        approve: true,
+        note: note.trim() || undefined,
+        targetAssignmentId: isSwap ? targetAssignmentId : undefined,
+      });
+      toast.success("Đã duyệt yêu cầu.");
+      onReload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không duyệt được, thử lại nhé.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reject() {
+    setBusy(true);
+    try {
+      await resolveShiftSwapRequest({ id: request.id, approve: false, note: note.trim() || undefined });
+      toast.success("Đã từ chối yêu cầu.");
+      onReload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không từ chối được, thử lại nhé.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const requesterName = nameById.get(request.requester_staff_id) ?? "Nhân viên";
+  const targetName = request.target_staff_id ? (nameById.get(request.target_staff_id) ?? "đồng nghiệp") : null;
+
+  return (
+    <li className="flex flex-col gap-2 py-3">
+      <div>
+        <p className="text-body-md font-semibold text-on-surface">
+          {requesterName} — {isSwap ? `muốn đổi ca với ${targetName}` : "xin nghỉ ca"}
+        </p>
+        <p className="text-label-sm text-on-surface-variant">
+          {dateLabel(request.work_date)} · {request.shift_name} ({formatTimeOfDay(request.shift_start)}–
+          {formatTimeOfDay(request.shift_end)})
+        </p>
+        {request.reason && <p className="text-label-sm italic text-on-surface-variant">“{request.reason}”</p>}
+      </div>
+
+      {isSwap && (
+        <select
+          value={targetAssignmentId}
+          onChange={(e) => setTargetAssignmentId(e.target.value)}
+          className="min-h-[40px] rounded-card border border-outline-variant bg-surface-container-lowest px-2.5 text-label-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+        >
+          <option value="">— Chọn ca của {targetName} để đổi —</option>
+          {(targetAssignments.data ?? []).map((a) => (
+            <option key={a.id} value={a.id}>
+              {dateLabel(a.work_date)} · {a.shift.name}
+            </option>
+          ))}
+        </select>
+      )}
+
+      <textarea
+        rows={2}
+        maxLength={500}
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Ghi chú duyệt/từ chối (không bắt buộc)"
+        className="rounded-card border border-outline-variant bg-surface-container-lowest px-3 py-2 text-body-sm text-on-surface outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+      />
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void approve()}
+          className="min-h-[40px] flex-1 rounded-card bg-inverse-surface px-3 text-label-md font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:opacity-50"
+        >
+          Duyệt
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void reject()}
+          className="min-h-[40px] rounded-card border border-outline-variant px-3 text-label-md text-error hover:bg-error-container disabled:opacity-50"
+        >
+          Từ chối
+        </button>
+      </div>
+    </li>
   );
 }
 

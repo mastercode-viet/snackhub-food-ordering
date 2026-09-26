@@ -405,3 +405,85 @@ export async function fetchStaffAttendanceDetail(
   if (error) throw error;
   return data as StaffAttendanceDetailRow[];
 }
+
+// ── Đổi ca / xin nghỉ ──────────────────────────────────────────────────────
+//
+// Nhân viên không ghi thẳng vào shift_swap_requests (không có policy
+// insert/update cho staff) — tạo/huỷ/duyệt đều qua RPC để server tự kiểm tra
+// quyền sở hữu ca và tự điền snapshot ngày/ca.
+
+export type ShiftSwapRequest = Tables<"shift_swap_requests">;
+export type ShiftSwapRequestType = ShiftSwapRequest["request_type"];
+export type StaffDirectoryEntry = { id: string; full_name: string };
+
+/** id + tên nhân viên đang hoạt động — RLS staff_profiles không cho nhân viên thường đọc hồ sơ người khác, nên phải qua RPC chỉ lộ 2 cột này. */
+export async function fetchStaffDirectory(): Promise<StaffDirectoryEntry[]> {
+  const { data, error } = await supabase.rpc("fetch_staff_directory");
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Yêu cầu mình gửi + yêu cầu người khác muốn đổi với mình. Lọc staff_id
+ * tường minh vì superadmin có hồ sơ nhân viên sẽ thấy MỌI yêu cầu qua
+ * policy admin_all — trang cá nhân phải đúng là "của tôi".
+ */
+export async function fetchMyShiftSwapRequests(staffId: string): Promise<ShiftSwapRequest[]> {
+  const { data, error } = await supabase
+    .from("shift_swap_requests")
+    .select("*")
+    .or(`requester_staff_id.eq.${staffId},target_staff_id.eq.${staffId}`)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) throw error;
+  return data;
+}
+
+export async function createShiftSwapRequest(input: {
+  assignmentId: string;
+  type: ShiftSwapRequestType;
+  targetStaffId?: string;
+  reason?: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc("create_shift_swap_request", {
+    p_assignment_id: input.assignmentId,
+    p_type: input.type,
+    p_target_staff_id: input.targetStaffId,
+    p_reason: input.reason,
+  });
+  if (error) throw error;
+}
+
+export async function cancelShiftSwapRequest(id: string): Promise<void> {
+  const { error } = await supabase.rpc("cancel_shift_swap_request", { p_id: id });
+  if (error) throw error;
+}
+
+/** Hàng đợi duyệt của superadmin — cũ nhất trước để xử lý theo thứ tự gửi. */
+export async function fetchPendingShiftSwapRequests(): Promise<ShiftSwapRequest[]> {
+  const { data, error } = await supabase
+    .from("shift_swap_requests")
+    .select("*")
+    .eq("status", "pending")
+    .order("created_at");
+  if (error) throw error;
+  return data;
+}
+
+/** Duyệt "đổi ca" bắt buộc có targetAssignmentId; duyệt "xin nghỉ" không có replacementStaffId thì ca bị gỡ khỏi lịch. */
+export async function resolveShiftSwapRequest(input: {
+  id: string;
+  approve: boolean;
+  note?: string;
+  targetAssignmentId?: string;
+  replacementStaffId?: string;
+}): Promise<void> {
+  const { error } = await supabase.rpc("resolve_shift_swap_request", {
+    p_id: input.id,
+    p_approve: input.approve,
+    p_note: input.note,
+    p_target_assignment_id: input.targetAssignmentId,
+    p_replacement_staff_id: input.replacementStaffId,
+  });
+  if (error) throw error;
+}
