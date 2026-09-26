@@ -6,7 +6,6 @@ import { AdminOrderAlertsContext } from "@/hooks/useAdminOrderAlerts";
 import { useOrderNotification } from "@/hooks/useOrderNotification";
 import AdminLoginPage from "@/pages/admin/AdminLoginPage";
 import { Skeleton } from "@/components/Skeleton";
-import CheckInOutWidget from "@/components/admin/CheckInOutWidget";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
 
@@ -76,9 +75,6 @@ export default function AdminLayout() {
               />
             </main>
           </div>
-
-          {/* Widget Check-in/Check-out: cố định trên mọi màn Admin cho tài khoản có hồ sơ nhân viên. */}
-          {isStaff && session && <CheckInOutWidget staffId={session.user.id} />}
         </div>
       </AdminOrderAlertsContext.Provider>
     </AdminSidebarContext.Provider>

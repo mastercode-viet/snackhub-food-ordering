@@ -106,6 +106,7 @@ function SidebarContent({
         <SidebarLink to="/admin/banner" label="Banner" />
         {isAdmin && <SidebarLink to="/admin/nhan-su" label="Nhân sự" />}
         {isAdmin && <SidebarLink to="/admin/ca-lam" label="Ca làm" />}
+        {isStaff && <SidebarLink to="/admin/cham-cong" label="Chấm công" />}
         {isStaff && <SidebarLink to="/admin/lich-cua-toi" label="Lịch của tôi" />}
         <SidebarLink to="/admin/cai-dat" label="Cài đặt quán" />
       </nav>

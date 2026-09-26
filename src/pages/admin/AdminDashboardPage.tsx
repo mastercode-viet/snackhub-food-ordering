@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronRight } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -24,6 +24,7 @@ import {
   fetchHeatmap,
   fetchTopCombos,
   fetchTopProducts,
+  isoDay,
   type HeatmapCell,
   type RevenueBucket,
   type TopCombo,
@@ -32,31 +33,58 @@ import {
 
 type Granularity = "day" | "week" | "month";
 
-const DAY_RANGES = [7, 14, 30] as const;
+const GRANULARITY_NOUN: Record<Granularity, string> = { day: "ngày", week: "tuần", month: "tháng" };
 
-const GRANULARITIES: Array<{ key: Granularity; label: string; noun: string }> = [
-  { key: "day", label: "Ngày", noun: "ngày" },
-  { key: "week", label: "Tuần", noun: "tuần" },
-  { key: "month", label: "Tháng", noun: "tháng" },
-];
+/** Khoảng càng dài thì gộp cột càng thô, tránh biểu đồ có hàng trăm cột ngày dí sát nhau. */
+function autoGranularity(spanDays: number): Granularity {
+  if (spanDays <= 31) return "day";
+  if (spanDays <= 180) return "week";
+  return "month";
+}
+
+function today(): string {
+  return isoDay(new Date());
+}
+
+function mondayOfThisWeek(): string {
+  const now = new Date();
+  const dow = now.getDay(); // 0 = Chủ nhật
+  now.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return isoDay(now);
+}
+
+function firstOfThisMonth(): string {
+  const now = new Date();
+  return isoDay(new Date(now.getFullYear(), now.getMonth(), 1));
+}
 
 export default function AdminDashboardPage() {
-  const [granularity, setGranularity] = useState<Granularity>("day");
-  const [dayRange, setDayRange] = useState<number>(14);
+  // Mặc định 14 ngày gần nhất — giữ đúng hành vi trước khi có Date Range Picker.
+  const [fromDate, setFromDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 13);
+    return isoDay(d);
+  });
+  const [toDate, setToDate] = useState<string>(today);
 
-  // Ngày -> cửa sổ do người dùng chọn (7/14/30). Tuần/Tháng -> cửa sổ cố định
-  // đủ để gộp ra vài chục cột chart (12 tuần / 6 tháng), tránh thêm 1 bộ nút
-  // phạm vi nữa chồng lên granularity.
-  const days = granularity === "day" ? dayRange : granularity === "week" ? 84 : 180;
+  // Người dùng có thể gõ Từ ngày > Đến ngày — hoán lại thay vì query lỗi.
+  const [rangeFrom, rangeTo] = fromDate <= toDate ? [fromDate, toDate] : [toDate, fromDate];
+
+  const spanDays = useMemo(() => {
+    const ms = new Date(`${rangeTo}T00:00:00`).getTime() - new Date(`${rangeFrom}T00:00:00`).getTime();
+    return Math.round(ms / 86_400_000) + 1;
+  }, [rangeFrom, rangeTo]);
+
+  const granularity = useMemo(() => autoGranularity(spanDays), [spanDays]);
 
   const state = useAsync(
     async () => ({
-      daily: await fetchDailyStats(days),
-      top: await fetchTopProducts(days),
-      combos: await fetchTopCombos(days),
-      heatmap: await fetchHeatmap(days),
+      daily: await fetchDailyStats(rangeFrom, rangeTo),
+      top: await fetchTopProducts(rangeFrom, rangeTo),
+      combos: await fetchTopCombos(rangeFrom, rangeTo),
+      heatmap: await fetchHeatmap(rangeFrom, rangeTo),
     }),
-    [days],
+    [rangeFrom, rangeTo],
   );
 
   const daily = state.data?.daily ?? [];
@@ -104,43 +132,12 @@ export default function AdminDashboardPage() {
           </p>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex gap-1.5">
-            {GRANULARITIES.map((g) => (
-              <button
-                key={g.key}
-                type="button"
-                onClick={() => setGranularity(g.key)}
-                className={`min-h-[44px] rounded-card px-3 text-label-md transition-colors ${
-                  g.key === granularity
-                    ? "bg-inverse-surface text-inverse-on-surface"
-                    : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
-                }`}
-              >
-                {g.label}
-              </button>
-            ))}
-          </div>
-
-          {granularity === "day" && (
-            <div className="flex gap-1.5">
-              {DAY_RANGES.map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setDayRange(r)}
-                  className={`min-h-[36px] rounded-card-sm px-2.5 text-label-sm transition-colors ${
-                    r === dayRange
-                      ? "bg-primary-container text-on-primary-container"
-                      : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
-                  }`}
-                >
-                  {r} ngày
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <DateRangeControls
+          fromDate={fromDate}
+          toDate={toDate}
+          onFromChange={setFromDate}
+          onToChange={setToDate}
+        />
       </header>
 
       {state.loading ? (
@@ -183,6 +180,94 @@ export default function AdminDashboardPage() {
 }
 
 /**
+ * Date Range Picker + nút chọn nhanh. Thay cho cặp nút Ngày/Tuần/Tháng +
+ * 7/14/30 ngày cũ — 2 bộ nút đó dễ gây nhầm giữa "gộp dữ liệu theo gì" và
+ * "xem khoảng nào", còn granularity biểu đồ giờ tự suy ra từ độ dài khoảng
+ * đã chọn (xem `autoGranularity`).
+ */
+function DateRangeControls({
+  fromDate,
+  toDate,
+  onFromChange,
+  onToChange,
+}: {
+  fromDate: string;
+  toDate: string;
+  onFromChange: (v: string) => void;
+  onToChange: (v: string) => void;
+}) {
+  const isToday = fromDate === today() && toDate === today();
+  const isThisWeek = fromDate === mondayOfThisWeek() && toDate === today();
+  const isThisMonth = fromDate === firstOfThisMonth() && toDate === today();
+
+  function quickSelect(from: string, to: string) {
+    onFromChange(from);
+    onToChange(to);
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex gap-1.5">
+        <QuickRangeButton active={isToday} onClick={() => quickSelect(today(), today())}>
+          Hôm nay
+        </QuickRangeButton>
+        <QuickRangeButton active={isThisWeek} onClick={() => quickSelect(mondayOfThisWeek(), today())}>
+          Tuần này
+        </QuickRangeButton>
+        <QuickRangeButton active={isThisMonth} onClick={() => quickSelect(firstOfThisMonth(), today())}>
+          Tháng này
+        </QuickRangeButton>
+      </div>
+
+      <div className="flex items-center gap-1.5 text-label-sm text-on-surface-variant">
+        <CalendarDays size={15} strokeWidth={2.2} className="shrink-0" />
+        <input
+          type="date"
+          value={fromDate}
+          max={toDate}
+          onChange={(e) => onFromChange(e.target.value)}
+          aria-label="Từ ngày"
+          className="min-h-[36px] rounded-card-sm border border-outline-variant bg-surface-container-lowest px-2 text-label-sm text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+        />
+        <span>—</span>
+        <input
+          type="date"
+          value={toDate}
+          min={fromDate}
+          onChange={(e) => onToChange(e.target.value)}
+          aria-label="Đến ngày"
+          className="min-h-[36px] rounded-card-sm border border-outline-variant bg-surface-container-lowest px-2 text-label-sm text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+        />
+      </div>
+    </div>
+  );
+}
+
+function QuickRangeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-h-[36px] rounded-card-sm px-2.5 text-label-sm transition-colors ${
+        active
+          ? "bg-inverse-surface text-inverse-on-surface"
+          : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
  * Ô số liệu: nhãn nhỏ ở trên, giá trị đậm ở dưới — đúng mẫu "nhãn trên, giá
  * trị dưới" dùng xuyên suốt app.
  */
@@ -214,7 +299,7 @@ function RevenueChart({
   granularity: Granularity;
 }) {
   const max = Math.max(...buckets.map((b) => b.revenue), 0);
-  const noun = GRANULARITIES.find((g) => g.key === granularity)!.noun;
+  const noun = GRANULARITY_NOUN[granularity];
 
   if (buckets.length === 0 || max === 0) {
     return (

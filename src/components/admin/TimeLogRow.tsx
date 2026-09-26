@@ -3,7 +3,39 @@ import { Clock, LogOut, Pencil, Trash2 } from "lucide-react";
 import { inputClass } from "@/components/admin/AdminForm";
 import { formatMinutes, formatTime, fromDatetimeLocalValue, toDatetimeLocalValue } from "@/lib/format";
 import { toast } from "@/store/toast";
-import { adminForceCheckout, adminUpdateTimeLog, deleteTimeLog, type TimeLog } from "@/lib/staffQueries";
+import {
+  adminForceCheckout,
+  adminUpdateTimeLog,
+  deleteTimeLog,
+  SHIFT_GRACE_MINUTES,
+  type TimeLog,
+} from "@/lib/staffQueries";
+
+/** Badge lệch giờ so với ca được gán — trễ vào / về sớm là điều cần lưu ý (đỏ), còn lại là bình thường (xanh). */
+function DeviationBadge({ minutes, kind }: { minutes: number | null; kind: "checkIn" | "checkOut" }) {
+  if (minutes === null) return null;
+  const isNotable = Math.abs(minutes) > SHIFT_GRACE_MINUTES;
+  const isBad = kind === "checkIn" ? minutes > SHIFT_GRACE_MINUTES : minutes < -SHIFT_GRACE_MINUTES;
+
+  let label: string;
+  if (!isNotable) {
+    label = kind === "checkIn" ? "Vào đúng giờ" : "Ra đúng giờ";
+  } else if (minutes > 0) {
+    label = kind === "checkIn" ? `Vào trễ ${minutes}p` : `Ra trễ ${minutes}p`;
+  } else {
+    label = kind === "checkIn" ? `Vào sớm ${-minutes}p` : `Ra sớm ${-minutes}p`;
+  }
+
+  return (
+    <span
+      className={`rounded-full px-1.5 py-0.5 text-label-xs font-semibold ${
+        isBad ? "bg-error-container text-on-error-container" : "bg-secondary-container text-on-secondary-container"
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
 
 /**
  * 1 dòng chấm công + hành động sửa/xoá/ép check-out cho Admin — dùng chung
@@ -13,10 +45,13 @@ import { adminForceCheckout, adminUpdateTimeLog, deleteTimeLog, type TimeLog } f
 export default function TimeLogRow({
   log,
   staffName,
+  deviation,
   onChanged,
 }: {
   log: TimeLog;
   staffName?: string;
+  /** Lệch giờ so với ca được gán ngày đó — undefined nếu ngày đó không có ca nào được gán. */
+  deviation?: { checkIn: number | null; checkOut: number | null };
   onChanged: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -98,15 +133,16 @@ export default function TimeLogRow({
   }
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 py-2 text-body-sm">
-      <span className="flex items-center gap-1.5 text-on-surface-variant">
-        {staffName && <strong className="text-on-surface">{staffName}</strong>}
-        <Clock size={13} strokeWidth={2.2} />
-        {formatTime(log.check_in_at)}
-        {log.check_out_at ? ` → ${formatTime(log.check_out_at)}` : " · đang mở"}
-      </span>
+    <li className="flex flex-col gap-1 py-2 text-body-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-on-surface-variant">
+          {staffName && <strong className="text-on-surface">{staffName}</strong>}
+          <Clock size={13} strokeWidth={2.2} />
+          {formatTime(log.check_in_at)}
+          {log.check_out_at ? ` → ${formatTime(log.check_out_at)}` : " · đang mở"}
+        </span>
 
-      <span className="flex items-center gap-1">
+        <span className="flex items-center gap-1">
         {log.total_minutes_worked !== null && (
           <span className="font-mono font-semibold text-on-surface">{formatMinutes(log.total_minutes_worked)}</span>
         )}
@@ -150,7 +186,15 @@ export default function TimeLogRow({
         >
           <Trash2 size={15} strokeWidth={2.2} />
         </button>
-      </span>
+        </span>
+      </div>
+
+      {deviation && (deviation.checkIn !== null || deviation.checkOut !== null) && (
+        <div className="flex flex-wrap items-center gap-1.5 pl-[19px]">
+          <DeviationBadge minutes={deviation.checkIn} kind="checkIn" />
+          <DeviationBadge minutes={deviation.checkOut} kind="checkOut" />
+        </div>
+      )}
     </li>
   );
 }

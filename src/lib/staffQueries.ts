@@ -18,6 +18,9 @@ export type Shift = Tables<"shifts">;
 export type ShiftAssignment = Tables<"shift_assignments">;
 export type ShiftAssignmentWithShift = ShiftAssignment & { shift: Shift };
 
+/** Ngoài khoảng này (phút) so với giờ bắt đầu/kết thúc ca được gán thì tính là trễ/về sớm — dùng chung giữa cảnh báo lúc chấm công (CheckInOutWidget) và thống kê phía superadmin, chỉ định nghĩa đúng 1 chỗ. */
+export const SHIFT_GRACE_MINUTES = 15;
+
 function isoMonthStart(month: Date): string {
   return `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-01`;
 }
@@ -366,13 +369,39 @@ export type StaffAttendanceStats = {
   assigned_days: number;
   late_count: number;
   absent_count: number;
+  early_leave_count: number;
 };
 
-/** So khớp ca được gán với chấm công thực tế trong tháng — trễ (>15p so với giờ ca) / vắng (có ca, ngày đã qua, không chấm công). */
+/** So khớp ca được gán với chấm công thực tế trong tháng — trễ/về sớm (>15p so với giờ ca) / vắng (có ca, ngày đã qua, không chấm công). */
 export async function fetchStaffAttendanceStats(month: Date): Promise<StaffAttendanceStats[]> {
   const { data, error } = await supabase.rpc("get_staff_attendance_stats", {
     p_month: isoMonthStart(month),
   });
   if (error) throw error;
   return data as StaffAttendanceStats[];
+}
+
+export type StaffAttendanceDetailRow = {
+  work_date: string;
+  shift_name: string;
+  shift_start: string;
+  shift_end: string;
+  check_in_at: string | null;
+  check_out_at: string | null;
+  /** Dương = trễ/về muộn hơn giờ ca, âm = sớm hơn giờ ca, null = chưa chấm công mốc đó. */
+  check_in_deviation_minutes: number | null;
+  check_out_deviation_minutes: number | null;
+};
+
+/** Chi tiết từng ngày trong tháng cho MỘT nhân viên — dùng cho bảng chấm công trong StaffDetailPanel. RLS tự chặn staff thường gọi cho người khác. */
+export async function fetchStaffAttendanceDetail(
+  staffId: string,
+  month: Date,
+): Promise<StaffAttendanceDetailRow[]> {
+  const { data, error } = await supabase.rpc("get_staff_attendance_detail", {
+    p_staff_id: staffId,
+    p_month: isoMonthStart(month),
+  });
+  if (error) throw error;
+  return data as StaffAttendanceDetailRow[];
 }

@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useAsync, type AsyncState } from "@/hooks/useAsync";
-import { formatMinutes, formatVnd } from "@/lib/format";
+import { formatMinutes, formatVnd, toIsoDate } from "@/lib/format";
 import { toast } from "@/store/toast";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
@@ -24,6 +24,7 @@ import {
   fetchAllOpenTimeLogs,
   fetchPayrollForMonth,
   fetchPayrollForStaff,
+  fetchStaffAttendanceDetail,
   fetchStaffAttendanceStats,
   fetchStaffMonthlyHours,
   fetchStaffProfiles,
@@ -32,6 +33,7 @@ import {
   updateStaffProfile,
   type OpenTimeLog,
   type PayrollRecord,
+  type StaffAttendanceDetailRow,
   type StaffAttendanceStats,
   type StaffMonthlyHours,
   type StaffProfile,
@@ -296,13 +298,24 @@ function StaffDetailPanel({
   onClose: () => void;
   onReload: () => void;
 }) {
+  const [detailMonthInput, setDetailMonthInput] = useState(currentMonthInputValue());
+  const detailMonth = useMemo(() => parseMonthInput(detailMonthInput), [detailMonthInput]);
+
   const history = useAsync(
     async () => ({
       timeLogs: await fetchTimeLogsForStaff(staff.id),
       payroll: await fetchPayrollForStaff(staff.id),
+      detail: await fetchStaffAttendanceDetail(staff.id, detailMonth),
     }),
-    [staff.id],
+    [staff.id, detailMonth.getTime()],
   );
+
+  /** Tra theo ngày (giờ máy admin — cùng quy ước warnIfOffShift đang dùng ở CheckInOutWidget) để gắn deviation vào đúng dòng chấm công. */
+  const detailByDate = useMemo(() => {
+    const map = new Map<string, StaffAttendanceDetailRow>();
+    for (const d of history.data?.detail ?? []) map.set(d.work_date, d);
+    return map;
+  }, [history.data]);
 
   const [fullName, setFullName] = useState(staff.full_name);
   const [phone, setPhone] = useState(staff.phone ?? "");
@@ -422,14 +435,40 @@ function StaffDetailPanel({
       ) : (
         <>
           <div className="flex flex-col gap-2 border-t border-outline-variant pt-space-md">
-            <h3 className="text-label-md font-semibold text-on-surface">Lịch sử chấm công</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-label-md font-semibold text-on-surface">Lịch sử chấm công</h3>
+              <label className="flex items-center gap-1.5">
+                <span className="text-label-xs text-on-surface-variant">Đối chiếu ca tháng</span>
+                <input
+                  type="month"
+                  value={detailMonthInput}
+                  onChange={(e) => setDetailMonthInput(e.target.value)}
+                  className="min-h-[36px] rounded-card-sm border border-outline-variant bg-surface-container-lowest px-2 text-label-sm text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
+                />
+              </label>
+            </div>
             {history.data!.timeLogs.length === 0 ? (
               <p className="text-body-sm text-on-surface-variant">Chưa có ca chấm công nào.</p>
             ) : (
               <ul className="flex flex-col divide-y divide-outline-variant">
-                {history.data!.timeLogs.map((log) => (
-                  <TimeLogRow key={log.id} log={log} onChanged={history.reload} />
-                ))}
+                {history.data!.timeLogs.map((log) => {
+                  const detail = detailByDate.get(toIsoDate(new Date(log.check_in_at)));
+                  return (
+                    <TimeLogRow
+                      key={log.id}
+                      log={log}
+                      onChanged={history.reload}
+                      deviation={
+                        detail
+                          ? {
+                              checkIn: detail.check_in_deviation_minutes,
+                              checkOut: detail.check_out_deviation_minutes,
+                            }
+                          : undefined
+                      }
+                    />
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -634,6 +673,7 @@ function MonthlyHoursTable({
                 <th className="py-2 pr-3">Số ca</th>
                 <th className="py-2 pr-3">Tổng giờ công</th>
                 <th className="py-2 pr-3">Trễ ca</th>
+                <th className="py-2 pr-3">Về sớm</th>
                 <th className="py-2 pr-3">Vắng ca</th>
                 <th className="py-2 pr-3">Lương tháng {monthLabel(month)}</th>
                 <th className="py-2 pr-3">Xác nhận</th>
@@ -666,6 +706,17 @@ function MonthlyHoursTable({
                         }`}
                       >
                         {att?.late_count ?? 0}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-label-xs font-semibold ${
+                          att && att.early_leave_count > 0
+                            ? "bg-error-container text-on-error-container"
+                            : "bg-secondary-container text-on-secondary-container"
+                        }`}
+                      >
+                        {att?.early_leave_count ?? 0}
                       </span>
                     </td>
                     <td className="py-2.5 pr-3">

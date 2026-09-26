@@ -7,12 +7,10 @@ import {
   checkOut,
   fetchOpenTimeLog,
   fetchShiftAssignmentForStaffOnDate,
+  SHIFT_GRACE_MINUTES,
   type ShiftAssignmentWithShift,
   type TimeLog,
 } from "@/lib/staffQueries";
-
-/** Ngoài khoảng này (phút) so với giờ bắt đầu/kết thúc ca được gán thì cảnh báo — không chặn thao tác. */
-const SHIFT_GRACE_MINUTES = 15;
 
 /** actualIso giờ thực tế check-in/out so với "HH:MM:SS" của ca -> dương = muộn hơn mốc, âm = sớm hơn mốc. */
 function minutesFromBoundary(actualIso: string, boundaryTime: string): number {
@@ -41,9 +39,9 @@ async function warnIfOffShift(staffId: string, actualIso: string, boundary: "sta
 }
 
 /**
- * Hiển thị CỐ ĐỊNH trên mọi trang /admin/* khi tài khoản đăng nhập có hồ sơ
- * staff_profiles (is_staff() true) — AdminLayout quyết định có mount hay
- * không, widget không tự kiểm tra quyền lại.
+ * Nội dung chính của tab "Chấm công" (`/admin/cham-cong`) — AdminCheckInPage
+ * quyết định có mount hay không (chỉ tài khoản có hồ sơ staff_profiles),
+ * widget không tự kiểm tra quyền lại.
  *
  * Không tự đếm giờ/phút làm real-time — total_minutes_worked chỉ chốt khi
  * check-out (cột generated ở DB), Widget chỉ hiển thị mốc check-in và kết
@@ -114,14 +112,14 @@ export default function CheckInOutWidget({ staffId }: { staffId: string }) {
   if (loading) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex w-[calc(100vw-2rem)] max-w-xs flex-col gap-1.5 sm:w-72">
+    <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
       {todayShift && (
-        <p className="self-end rounded-full bg-surface-container-lowest px-3 py-1 text-label-xs text-on-surface-variant shadow-card">
+        <p className="text-label-sm text-on-surface-variant">
           Ca hôm nay: <strong className="text-on-surface">{todayShift.shift.name}</strong>{" "}
           {formatTimeOfDay(todayShift.shift.start_time)}–{formatTimeOfDay(todayShift.shift.end_time)}
         </p>
       )}
-      <div className="flex items-center gap-3 rounded-card-lg bg-surface-container-lowest p-3 shadow-sheet">
+      <div className="flex flex-wrap items-center gap-3">
         <span
           className={`grid size-10 shrink-0 place-items-center rounded-full ${
             shift ? "bg-secondary-container text-on-secondary-container" : "bg-surface-container text-on-surface-variant"
@@ -161,6 +159,6 @@ export default function CheckInOutWidget({ staffId }: { staffId: string }) {
           </button>
         )}
       </div>
-    </div>
+    </section>
   );
 }

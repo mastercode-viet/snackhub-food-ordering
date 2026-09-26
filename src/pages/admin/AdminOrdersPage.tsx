@@ -182,7 +182,10 @@ export default function AdminOrdersPage() {
     const q = normalizeSearch(debouncedSearch);
     if (q) {
       filtered = filtered.filter(
-        (o) => normalizeSearch(o.order_code).includes(q) || normalizeSearch(o.customer_name).includes(q),
+        (o) =>
+          normalizeSearch(o.order_code).includes(q) ||
+          normalizeSearch(o.customer_name).includes(q) ||
+          o.customer_phone.includes(q),
       );
     }
 
@@ -366,7 +369,7 @@ export default function AdminOrdersPage() {
       <AdminSearchInput
         value={search}
         onChange={setSearch}
-        placeholder="Tìm theo mã đơn hoặc tên khách…"
+        placeholder="Tìm theo mã đơn, tên khách hoặc số điện thoại…"
       />
 
       {/* Lọc/gom nhóm theo toà nhà: chỉ Superadmin điều phối giao hàng theo khu vực toàn quán. */}
@@ -422,7 +425,7 @@ export default function AdminOrdersPage() {
                 }
                 description={
                   debouncedSearch.trim()
-                    ? "Thử tìm với mã đơn hoặc tên khách khác."
+                    ? "Thử tìm với mã đơn, tên khách hoặc số điện thoại khác."
                     : tab === "sla_overdue"
                       ? "Mọi đơn hàng đều được xử lý và giao đúng hạn mức thời gian."
                       : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
@@ -641,7 +644,10 @@ function OrderPanel({
         {order.payment_method === "cod" && order.payment_status === "paid" && (
           <p className="text-label-sm text-on-surface-variant">
             Thu bởi:{" "}
-            <strong className="text-on-surface">{order.collected_by_staff?.full_name ?? "—"}</strong>
+            {/* collected_by_staff_id chỉ được trigger gắn khi người xác nhận có hồ sơ
+                staff_profiles (xem 20260924090000_delivery_and_payment_lock.sql) — rỗng
+                nghĩa là superadmin xác nhận, không phải thiếu dữ liệu. */}
+            <strong className="text-on-surface">{order.collected_by_staff?.full_name ?? "Cô chủ nhỏ"}</strong>
           </p>
         )}
       </div>

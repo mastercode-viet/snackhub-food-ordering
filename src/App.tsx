@@ -26,6 +26,7 @@ const AdminCombosPage = lazy(() => import("@/pages/admin/AdminCombosPage"));
 const AdminStaffPage = lazy(() => import("@/pages/admin/AdminStaffPage"));
 const AdminShiftsPage = lazy(() => import("@/pages/admin/AdminShiftsPage"));
 const AdminMyShiftsPage = lazy(() => import("@/pages/admin/AdminMyShiftsPage"));
+const AdminCheckInPage = lazy(() => import("@/pages/admin/AdminCheckInPage"));
 
 const router = createBrowserRouter([
   {
@@ -69,6 +70,7 @@ const router = createBrowserRouter([
           { path: "nhan-su", element: <AdminStaffPage /> },
           { path: "ca-lam", element: <AdminShiftsPage /> },
           { path: "lich-cua-toi", element: <AdminMyShiftsPage /> },
+          { path: "cham-cong", element: <AdminCheckInPage /> },
           { path: "cai-dat", element: <AdminSettingsPage /> },
         ],
       },

@@ -247,14 +247,8 @@ export type TopCombo = { combo_id: string; combo_name: string; quantity: number;
 /** 1 ô trong lưới heatmap Thứ×Giờ. `dow`: 0 = Chủ nhật ... 6 = Thứ 7 (theo Date#getDay()). */
 export type HeatmapCell = { dow: number; hour: number; total_orders: number };
 
-function isoDay(d: Date): string {
+export function isoDay(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function daysAgoISO(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return isoDay(d);
 }
 
 const EMPTY_DAY = {
@@ -273,14 +267,17 @@ const EMPTY_DAY = {
  * View chỉ có dòng cho ngày CÓ đơn. Nếu đổ thẳng ra biểu đồ thì ngày không
  * đơn biến mất và trục ngày thành ra sai — các cột cách đều nhau như thể
  * ngày nào cũng liền ngày nào. Nên dựng đủ dải ngày rồi điền 0 vào chỗ trống.
+ *
+ * `from`/`to` là chuỗi ISO "YYYY-MM-DD", theo Date Range Picker trên
+ * AdminDashboardPage — khác bản cũ chỉ nhận số ngày tính lùi từ hôm nay, bản
+ * này cho chọn khoảng bất kỳ trong quá khứ (vd "Tháng trước").
  */
-export async function fetchDailyStats(days = 14): Promise<DailyStat[]> {
-  const from = daysAgoISO(days - 1);
-
+export async function fetchDailyStats(from: string, to: string): Promise<DailyStat[]> {
   const { data, error } = await supabase
     .from("admin_daily_stats")
     .select("*")
     .gte("day", from)
+    .lte("day", to)
     .order("day");
 
   if (error) throw error;
@@ -302,10 +299,10 @@ export async function fetchDailyStats(days = 14): Promise<DailyStat[]> {
   }
 
   const spine: DailyStat[] = [];
-  const cursor = new Date();
-  cursor.setDate(cursor.getDate() - (days - 1));
+  const cursor = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
 
-  for (let i = 0; i < days; i++) {
+  while (cursor <= end) {
     const key = isoDay(cursor);
     spine.push(byDay.get(key) ?? { day: key, ...EMPTY_DAY });
     cursor.setDate(cursor.getDate() + 1);
@@ -315,11 +312,12 @@ export async function fetchDailyStats(days = 14): Promise<DailyStat[]> {
 }
 
 /** View trả theo từng ngày; gộp lại theo món để ra bảng bán chạy. */
-export async function fetchTopProducts(days = 14, limit = 8): Promise<TopProduct[]> {
+export async function fetchTopProducts(from: string, to: string, limit = 8): Promise<TopProduct[]> {
   const { data, error } = await supabase
     .from("admin_top_products")
     .select("product_name, total_quantity, total_revenue")
-    .gte("day", daysAgoISO(days));
+    .gte("day", from)
+    .lte("day", to);
 
   if (error) throw error;
 
@@ -336,11 +334,12 @@ export async function fetchTopProducts(days = 14, limit = 8): Promise<TopProduct
 }
 
 /** Combo bán chạy — cùng khuôn view day-grain như admin_top_products. */
-export async function fetchTopCombos(days = 14, limit = 8): Promise<TopCombo[]> {
+export async function fetchTopCombos(from: string, to: string, limit = 8): Promise<TopCombo[]> {
   const { data, error } = await supabase
     .from("admin_top_combos")
     .select("combo_id, combo_name, total_quantity, total_revenue")
-    .gte("day", daysAgoISO(days));
+    .gte("day", from)
+    .lte("day", to);
 
   if (error) throw error;
 
@@ -362,11 +361,12 @@ export async function fetchTopCombos(days = 14, limit = 8): Promise<TopCombo[]> 
  * xem. `day` view đã quy đổi về giờ VN nên tính dow trực tiếp từ chuỗi ngày
  * là đúng, không lệch múi giờ trình duyệt.
  */
-export async function fetchHeatmap(days = 30): Promise<HeatmapCell[]> {
+export async function fetchHeatmap(from: string, to: string): Promise<HeatmapCell[]> {
   const { data, error } = await supabase
     .from("admin_hourly_heatmap")
     .select("day, hour, total_orders")
-    .gte("day", daysAgoISO(days));
+    .gte("day", from)
+    .lte("day", to);
 
   if (error) throw error;
 

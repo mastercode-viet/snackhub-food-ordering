@@ -4,7 +4,13 @@
  *   supabase gen types typescript --project-id awquwyqtcbgbdqkpehnp > src/types/database.ts
  */
 
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
@@ -282,9 +288,6 @@ export type Database = {
           quantity?: number
           unit_price?: number
         }
-        // combo_id CHỈ phục vụ join/báo cáo, KHÔNG dùng để hiển thị — hiển thị
-        // dựa vào product_name/product_image_url/base_price (đã snapshot) và
-        // combo_items_snapshot. Xem comment cột tương ứng trong migration.
         Relationships: [
           {
             foreignKeyName: "order_items_combo_id_fkey"
@@ -344,17 +347,74 @@ export type Database = {
           total_amount: number
           updated_at: string
         }
-        Insert: Partial<Database["public"]["Tables"]["orders"]["Row"]> & {
+        Insert: {
+          admin_note?: string | null
+          assigned_staff_id?: string | null
           building: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: Database["public"]["Enums"]["cancelled_by"] | null
+          class_name?: string | null
+          collected_by_staff_id?: string | null
+          completed_at?: string | null
+          created_at?: string
           customer_name: string
           customer_phone: string
+          delivery_note?: string | null
+          discount_amount?: number
+          discount_code?: string | null
+          discount_code_id?: string | null
+          floor?: string | null
+          id?: string
+          order_code: string
+          paid_at?: string | null
           payment_method: Database["public"]["Enums"]["payment_method"]
+          payment_status?: Database["public"]["Enums"]["payment_status"]
+          payos_checkout_url?: string | null
+          payos_order_code?: number | null
+          payos_payment_link_id?: string | null
+          payos_qr_code?: string | null
+          room?: string | null
+          shipping_fee?: number
+          status?: Database["public"]["Enums"]["order_status"]
           subtotal: number
           total_amount: number
+          updated_at?: string
         }
-        Update: Partial<Database["public"]["Tables"]["orders"]["Row"]>
-        // collected_by_staff_id: nhân viên đã thu tiền COD, NULL nếu chưa thu
-        // hoặc thanh toán qua PayOS. Xem migration staff_rbac_phase3.
+        Update: {
+          admin_note?: string | null
+          assigned_staff_id?: string | null
+          building?: string
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: Database["public"]["Enums"]["cancelled_by"] | null
+          class_name?: string | null
+          collected_by_staff_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          customer_name?: string
+          customer_phone?: string
+          delivery_note?: string | null
+          discount_amount?: number
+          discount_code?: string | null
+          discount_code_id?: string | null
+          floor?: string | null
+          id?: string
+          order_code?: string
+          paid_at?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"]
+          payment_status?: Database["public"]["Enums"]["payment_status"]
+          payos_checkout_url?: string | null
+          payos_order_code?: number | null
+          payos_payment_link_id?: string | null
+          payos_qr_code?: string | null
+          room?: string | null
+          shipping_fee?: number
+          status?: Database["public"]["Enums"]["order_status"]
+          subtotal?: number
+          total_amount?: number
+          updated_at?: string
+        }
         Relationships: [
           {
             foreignKeyName: "orders_assigned_staff_id_fkey"
@@ -997,14 +1057,34 @@ export type Database = {
           pay_month: string
           staff_id: string
         }
+        SetofOptions: {
+          from: "*"
+          to: "payroll_history"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       generate_order_code: { Args: never; Returns: string }
       get_order_by_code: { Args: { p_order_code: string }; Returns: Json }
+      get_staff_attendance_detail: {
+        Args: { p_month: string; p_staff_id: string }
+        Returns: {
+          check_in_at: string
+          check_in_deviation_minutes: number
+          check_out_at: string
+          check_out_deviation_minutes: number
+          shift_end: string
+          shift_name: string
+          shift_start: string
+          work_date: string
+        }[]
+      }
       get_staff_attendance_stats: {
         Args: { p_month: string }
         Returns: {
           absent_count: number
           assigned_days: number
+          early_leave_count: number
           full_name: string
           late_count: number
           staff_id: string
