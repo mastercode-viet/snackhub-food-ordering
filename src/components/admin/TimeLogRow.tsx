@@ -13,34 +13,34 @@ import {
 
 /**
  * Badge lệch giờ so với ca được gán. Đây là màn "chi tiết" nên LUÔN hiện
- * đúng số phút lệch thật — trước đây gộp mọi lệch <=15p (SHIFT_GRACE_MINUTES)
- * thành nhãn chung "Đúng giờ" khiến vào/ra trễ 2 phút cũng hiện "đúng giờ",
- * che mất số liệu thật ngay trên chính màn để xem số liệu. Ngưỡng
- * SHIFT_GRACE_MINUTES chỉ còn dùng để quyết định màu (đỏ = lệch đáng kể,
- * khớp đúng định nghĩa "trễ ca"/"về sớm" ở bảng tổng hợp tháng bên cạnh).
+ * đúng số phút lệch thật, không gộp thành "Đúng giờ" trừ khi lệch = 0.
+ *
+ * Màu: trễ (vào hoặc ra) -> warning (vàng hổ phách, cùng tông với badge SLA
+ * "sắp trễ" ở AdminOrdersPage — M3 token ở đây không có role "warning"
+ * riêng). Về sớm vượt SHIFT_GRACE_MINUTES vẫn giữ đỏ (đáng lo hơn, khớp
+ * "về sớm" tính vào thống kê tháng). Đúng giờ hoặc vào sớm -> xanh.
  */
 function DeviationBadge({ minutes, kind }: { minutes: number | null; kind: "checkIn" | "checkOut" }) {
   if (minutes === null) return null;
-  const isBad = kind === "checkIn" ? minutes > SHIFT_GRACE_MINUTES : minutes < -SHIFT_GRACE_MINUTES;
 
   let label: string;
+  let toneClass: string;
+
   if (minutes === 0) {
     label = kind === "checkIn" ? "Vào đúng giờ" : "Ra đúng giờ";
+    toneClass = "bg-secondary-container text-on-secondary-container";
   } else if (minutes > 0) {
     label = kind === "checkIn" ? `Vào trễ ${minutes}p` : `Ra trễ ${minutes}p`;
+    toneClass = "bg-amber-100 text-amber-900";
   } else {
     label = kind === "checkIn" ? `Vào sớm ${-minutes}p` : `Ra sớm ${-minutes}p`;
+    const isBad = kind === "checkOut" && minutes < -SHIFT_GRACE_MINUTES;
+    toneClass = isBad
+      ? "bg-error-container text-on-error-container"
+      : "bg-secondary-container text-on-secondary-container";
   }
 
-  return (
-    <span
-      className={`rounded-full px-1.5 py-0.5 text-label-xs font-semibold ${
-        isBad ? "bg-error-container text-on-error-container" : "bg-secondary-container text-on-secondary-container"
-      }`}
-    >
-      {label}
-    </span>
-  );
+  return <span className={`rounded-full px-1.5 py-0.5 text-label-xs font-semibold ${toneClass}`}>{label}</span>;
 }
 
 /**
