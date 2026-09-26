@@ -12,10 +12,13 @@ import {
   Timer,
 } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
+import { useDebounce } from "@/hooks/useDebounce";
 import { useAdminOrderAlerts } from "@/hooks/useAdminOrderAlerts";
 import OrderSoundToggle from "@/components/admin/OrderSoundToggle";
+import AdminSearchInput from "@/components/admin/AdminSearchInput";
 import type { AdminOutletContext } from "@/routes/AdminLayout";
 import { supabase } from "@/lib/supabase";
+import { normalizeSearch } from "@/lib/text";
 import { formatVnd, formatTime } from "@/lib/format";
 import { toast } from "@/store/toast";
 import { OrderStatusBadge, STATUS_LABEL } from "@/components/order/OrderStatus";
@@ -108,6 +111,8 @@ export default function AdminOrdersPage() {
   // hàng theo khu vực toàn quán; staff xử lý đơn theo hàng đợi thông thường.
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
   const [groupByBuilding, setGroupByBuilding] = useState(false);
+  const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search);
 
   // Cập nhật bộ đếm thời gian thực mỗi 15 giây để timer và cảnh báo nhảy số chính xác
   useEffect(() => {
@@ -174,6 +179,13 @@ export default function AdminOrdersPage() {
       filtered = filtered.filter((o) => o.building === buildingFilter);
     }
 
+    const q = normalizeSearch(debouncedSearch);
+    if (q) {
+      filtered = filtered.filter(
+        (o) => normalizeSearch(o.order_code).includes(q) || normalizeSearch(o.customer_name).includes(q),
+      );
+    }
+
     // Sắp xếp ưu tiên theo SLA đối với các đơn chưa hoàn thành
     return [...filtered].sort((a, b) => {
       const aFinished = a.status === "completed" || a.status === "cancelled";
@@ -201,7 +213,7 @@ export default function AdminOrdersPage() {
 
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
-  }, [orders, tab, now, isAdmin, buildingFilter]);
+  }, [orders, tab, now, isAdmin, buildingFilter, debouncedSearch]);
 
   // Gom `visible` (đã lọc + sắp SLA) thành từng nhóm theo toà nhà, giữ
   // nguyên thứ tự ưu tiên SLA bên trong mỗi nhóm — chỉ đổi cách trình bày,
@@ -351,6 +363,12 @@ export default function AdminOrdersPage() {
         })}
       </div>
 
+      <AdminSearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Tìm theo mã đơn hoặc tên khách…"
+      />
+
       {/* Lọc/gom nhóm theo toà nhà: chỉ Superadmin điều phối giao hàng theo khu vực toàn quán. */}
       {isAdmin && buildings.length > 1 && (
         <div className="flex flex-wrap items-center gap-2 rounded-card-lg bg-surface-container-lowest p-3 shadow-card">
@@ -395,11 +413,19 @@ export default function AdminOrdersPage() {
             {visible.length === 0 ? (
               <EmptyState
                 icon="🧾"
-                title={tab === "sla_overdue" ? "Tuyệt vời! Không có đơn nào trễ hạn" : "Không có đơn nào ở mục này"}
+                title={
+                  debouncedSearch.trim()
+                    ? "Không tìm thấy đơn nào khớp"
+                    : tab === "sla_overdue"
+                      ? "Tuyệt vời! Không có đơn nào trễ hạn"
+                      : "Không có đơn nào ở mục này"
+                }
                 description={
-                  tab === "sla_overdue"
-                    ? "Mọi đơn hàng đều được xử lý và giao đúng hạn mức thời gian."
-                    : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
+                  debouncedSearch.trim()
+                    ? "Thử tìm với mã đơn hoặc tên khách khác."
+                    : tab === "sla_overdue"
+                      ? "Mọi đơn hàng đều được xử lý và giao đúng hạn mức thời gian."
+                      : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
                 }
               />
             ) : groupedByBuilding ? (
