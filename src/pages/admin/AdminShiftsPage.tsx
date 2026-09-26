@@ -3,26 +3,32 @@ import { useOutletContext } from "react-router-dom";
 import { CalendarRange, ChevronLeft, ChevronRight, Clock, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import { FormField, inputClass } from "@/components/admin/AdminForm";
-import { formatTimeOfDay, toIsoDate } from "@/lib/format";
+import { formatTimeOfDay, mondayOf, toIsoDate } from "@/lib/format";
 import { toast } from "@/store/toast";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import ShiftScheduleGrid from "@/components/admin/ShiftScheduleGrid";
 import type { AdminOutletContext } from "@/routes/AdminLayout";
 import {
   bulkAssignShift,
   createShift,
   deleteShift,
-  deleteShiftAssignment,
   fetchShiftAssignments,
   fetchShifts,
   fetchStaffProfiles,
   updateShift,
-  upsertShiftAssignment,
   type Shift,
   type ShiftAssignmentWithShift,
   type StaffProfile,
 } from "@/lib/staffQueries";
+
+/** "2026-09-20" + N -> "2026-09-27" (N ngày sau, có thể âm để lùi lại). */
+function addDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return toIsoDate(d);
+}
 
 const WEEKDAYS = [
   { value: 1, label: "T2" },
@@ -46,7 +52,8 @@ function dateLabel(iso: string): string {
 
 export default function AdminShiftsPage() {
   const { isAdmin } = useOutletContext<AdminOutletContext>();
-  const [selectedDate, setSelectedDate] = useState(() => toIsoDate(new Date()));
+  const [weekStart, setWeekStart] = useState(() => mondayOf(toIsoDate(new Date())));
+  const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
 
   const state = useAsync(
     async () =>
@@ -54,10 +61,10 @@ export default function AdminShiftsPage() {
         ? {
             shifts: await fetchShifts(),
             staff: await fetchStaffProfiles(),
-            assignments: await fetchShiftAssignments(selectedDate, selectedDate),
+            assignments: await fetchShiftAssignments(weekStart, weekEnd),
           }
         : { shifts: [], staff: [], assignments: [] },
-    [selectedDate, isAdmin],
+    [weekStart, weekEnd, isAdmin],
   );
 
   if (!isAdmin) {
@@ -107,8 +114,8 @@ export default function AdminShiftsPage() {
           <ShiftListSection shifts={state.data!.shifts} onRun={run} />
 
           <ScheduleSection
-            selectedDate={selectedDate}
-            onChangeDate={setSelectedDate}
+            weekStart={weekStart}
+            onChangeWeekStart={setWeekStart}
             shifts={state.data!.shifts}
             staff={state.data!.staff}
             assignments={state.data!.assignments}
@@ -286,62 +293,66 @@ function ShiftForm({
   );
 }
 
-// ── Lịch gán ca theo ngày cụ thể ────────────────────────────────────────────
+// ── Lịch gán ca theo tuần ───────────────────────────────────────────────────
 
 function ScheduleSection({
-  selectedDate,
-  onChangeDate,
+  weekStart,
+  onChangeWeekStart,
   shifts,
   staff,
   assignments,
   onRun,
   onReload,
 }: {
-  selectedDate: string;
-  onChangeDate: (d: string) => void;
+  weekStart: string;
+  onChangeWeekStart: (d: string) => void;
   shifts: Shift[];
   staff: StaffProfile[];
   assignments: ShiftAssignmentWithShift[];
   onRun: RunFn;
   onReload: () => void;
 }) {
-  const activeStaff = useMemo(() => staff.filter((s) => s.is_active), [staff]);
-  const assignmentByStaffId = useMemo(
-    () => new Map(assignments.map((a) => [a.staff_id, a])),
-    [assignments],
-  );
+  const assignmentByKey = useMemo(() => {
+    const map = new Map<string, ShiftAssignmentWithShift>();
+    for (const a of assignments) map.set(`${a.staff_id}|${a.work_date}`, a);
+    return map;
+  }, [assignments]);
   const [showBulk, setShowBulk] = useState(false);
-
-  function shiftDate(deltaDays: number) {
-    const d = new Date(`${selectedDate}T00:00:00`);
-    d.setDate(d.getDate() + deltaDays);
-    onChangeDate(toIsoDate(d));
-  }
+  const weekEnd = addDays(weekStart, 6);
 
   return (
     <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-label-lg text-on-surface">Lịch làm việc theo ngày</h2>
+        <h2 className="text-label-lg text-on-surface">Lịch làm việc theo tuần</h2>
 
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={() => shiftDate(-1)}
-            aria-label="Ngày trước"
+            onClick={() => onChangeWeekStart(addDays(weekStart, -7))}
+            aria-label="Tuần trước"
             className="grid size-9 place-items-center rounded-card border border-outline-variant text-on-surface-variant hover:bg-surface-container"
           >
             <ChevronLeft size={16} strokeWidth={2.2} />
           </button>
+          <button
+            type="button"
+            onClick={() => onChangeWeekStart(mondayOf(toIsoDate(new Date())))}
+            className="inline-flex min-h-[40px] items-center rounded-card border border-outline-variant px-3 text-label-sm font-semibold text-on-surface transition-colors hover:bg-surface-container"
+          >
+            Hôm nay
+          </button>
+          {/* Chọn ngày bất kỳ -> nhảy về đúng tuần chứa ngày đó (Thứ 2). */}
           <input
             type="date"
-            value={selectedDate}
-            onChange={(e) => onChangeDate(e.target.value)}
+            value={weekStart}
+            onChange={(e) => e.target.value && onChangeWeekStart(mondayOf(e.target.value))}
+            aria-label="Chọn tuần"
             className="min-h-[40px] rounded-card border border-outline-variant bg-surface-container-lowest px-2.5 text-label-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
           />
           <button
             type="button"
-            onClick={() => shiftDate(1)}
-            aria-label="Ngày sau"
+            onClick={() => onChangeWeekStart(addDays(weekStart, 7))}
+            aria-label="Tuần sau"
             className="grid size-9 place-items-center rounded-card border border-outline-variant text-on-surface-variant hover:bg-surface-container"
           >
             <ChevronRight size={16} strokeWidth={2.2} />
@@ -370,53 +381,17 @@ function ScheduleSection({
         />
       )}
 
-      <p className="text-label-sm text-on-surface-variant">{dateLabel(selectedDate)}</p>
+      <p className="text-label-sm text-on-surface-variant">
+        {dateLabel(weekStart)} – {dateLabel(weekEnd)}
+      </p>
 
-      {activeStaff.length === 0 ? (
-        <p className="text-body-sm text-on-surface-variant">Chưa có nhân viên đang hoạt động.</p>
-      ) : shifts.length === 0 ? (
-        <p className="text-body-sm text-on-surface-variant">Tạo ít nhất một ca làm ở trên trước khi gán lịch.</p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-outline-variant">
-          {activeStaff.map((s) => {
-            const assignment = assignmentByStaffId.get(s.id);
-            return (
-              <li key={s.id} className="flex flex-wrap items-center gap-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-body-md font-semibold text-on-surface">{s.full_name}</p>
-                </div>
-                <select
-                  value={assignment?.shift_id ?? ""}
-                  onChange={(e) => {
-                    const shiftId = e.target.value;
-                    if (!shiftId) {
-                      if (!assignment) return;
-                      void onRun(
-                        () => deleteShiftAssignment(assignment.id),
-                        `Đã gỡ ca của ${s.full_name} ngày ${selectedDate}.`,
-                      );
-                      return;
-                    }
-                    const shift = shifts.find((sh) => sh.id === shiftId);
-                    void onRun(
-                      () => upsertShiftAssignment({ staffId: s.id, shiftId, workDate: selectedDate }),
-                      `Đã gán "${shift?.name}" cho ${s.full_name} ngày ${selectedDate}.`,
-                    );
-                  }}
-                  className="min-h-[40px] rounded-card border border-outline-variant bg-surface-container-lowest px-2.5 text-label-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
-                >
-                  <option value="">— Chưa gán ca —</option>
-                  {shifts.map((sh) => (
-                    <option key={sh.id} value={sh.id}>
-                      {sh.name} ({formatTimeOfDay(sh.start_time)}–{formatTimeOfDay(sh.end_time)})
-                    </option>
-                  ))}
-                </select>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <ShiftScheduleGrid
+        weekStart={weekStart}
+        staff={staff}
+        shifts={shifts}
+        assignmentByKey={assignmentByKey}
+        onRun={onRun}
+      />
     </section>
   );
 }

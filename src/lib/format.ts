@@ -71,6 +71,14 @@ export function toIsoDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+/** "2026-09-20" (ngày bất kỳ) -> "2026-09-14" (Thứ 2 của tuần đó). Dùng chung cho gộp biểu đồ doanh thu và lưới lịch ca làm — chỉ định nghĩa đúng 1 chỗ "tuần bắt đầu Thứ 2". */
+export function mondayOf(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  const dow = d.getDay();
+  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
+  return toIsoDate(d);
+}
+
 /** "06:00:00" -> "06:00" (bỏ giây, dùng cho input type=time và hiển thị ca làm). */
 export function formatTimeOfDay(time: string): string {
   return time.slice(0, 5);

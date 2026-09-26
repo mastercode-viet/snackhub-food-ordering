@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import type { OrderItemView } from "@/lib/queries";
 import type { Tables } from "@/types/database";
+import { mondayOf } from "@/lib/format";
 
 /**
  * Truy vấn chỉ Admin dùng. Ghi được hay không là do RLS (`is_admin()`) quyết
@@ -394,13 +395,6 @@ export type RevenueBucket = {
   completed_orders: number;
   total_orders: number;
 };
-
-function mondayOf(iso: string): string {
-  const d = new Date(`${iso}T00:00:00`);
-  const dow = d.getDay();
-  d.setDate(d.getDate() + (dow === 0 ? -6 : 1 - dow));
-  return isoDay(d);
-}
 
 /**
  * Gộp dữ liệu ngày (từ fetchDailyStats) thành tuần (mốc Thứ 2 đầu tuần) hoặc
