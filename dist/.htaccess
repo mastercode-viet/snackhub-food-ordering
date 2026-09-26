@@ -1,0 +1,12 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Giữ nguyên request tới file/thư mục có thật (assets, ảnh, favicon...)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Mọi route còn lại (client-side route của React Router) trả về index.html
+  RewriteRule ^ /index.html [L]
+</IfModule>
