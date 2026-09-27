@@ -80,23 +80,26 @@ export default function OrderTrackingPage() {
 
   // Khách không đọc được bảng orders qua RLS nên không dùng được Postgres
   // Changes — vẫn nghe được Realtime Broadcast công khai trên kênh
-  // order:<mã đơn> (payos-webhook phát 'paid', trigger DB phát 'cancelled')
-  // để cập nhật NGAY thay vì đợi tới vòng poll tiếp theo. Poll vẫn giữ làm
-  // lưới an toàn phòng khi broadcast bị rớt (socket đứt, tab vừa mở lại...).
+  // order:<mã đơn> (payos-webhook phát 'paid', trigger DB phát 'status_changed'
+  // mỗi khi admin đổi trạng thái) để cập nhật NGAY thay vì đợi tới vòng poll
+  // tiếp theo. Poll vẫn giữ làm lưới an toàn phòng khi broadcast bị rớt
+  // (socket đứt, tab vừa mở lại...), chỉ chạy khi đơn còn đang xử lý.
   useEffect(() => {
-    if (!order || !ACTIVE.has(order.status)) return;
+    if (!order) return;
 
     const channel = supabase
       .channel(`order:${order.order_code}`)
       .on("broadcast", { event: "paid" }, () => void load(true))
-      .on("broadcast", { event: "cancelled" }, () => void load(true))
+      .on("broadcast", { event: "status_changed" }, () => void load(true))
       .subscribe();
 
-    const timer = setInterval(() => void load(true), POLL_MS);
+    const timer = ACTIVE.has(order.status)
+      ? setInterval(() => void load(true), POLL_MS)
+      : undefined;
 
     return () => {
       void supabase.removeChannel(channel);
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
   }, [order, load]);
 
