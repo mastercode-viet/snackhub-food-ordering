@@ -1,4 +1,5 @@
 import { Ban, Check, ChefHat, Bike, PackageCheck, Clock } from "lucide-react";
+import { STORE_CONTACT } from "@/lib/contact";
 import { formatTime } from "@/lib/format";
 import type { Tables } from "@/types/database";
 
@@ -68,8 +69,8 @@ export function OrderStatusBadge({ status }: { status: Status }) {
  * đã bỏ hết: Sagori chỉ có một vai trò Admin, không có shipper riêng và
  * backend không lưu toạ độ hay ETA nào. Chỉ giữ đúng 4 trạng thái có thật.
  */
-/** Số hỗ trợ hoàn tiền — cố định, hiện khi đơn đã huỷ NHƯNG tiền đã thu rồi. */
-const REFUND_HOTLINE = "0963743207";
+/** Số hỗ trợ hoàn tiền — hiện khi đơn đã huỷ NHƯNG tiền đã thu rồi. */
+const REFUND_HOTLINE = STORE_CONTACT.phone;
 
 export function OrderTimeline({
   status,

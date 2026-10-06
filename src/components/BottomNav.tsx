@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { ReceiptText, ShoppingBag, Store, UtensilsCrossed } from "lucide-react";
+import { Phone, ReceiptText, ShoppingBag, Store, UtensilsCrossed } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { useCartCount } from "@/store/cart";
@@ -14,6 +14,7 @@ export default function BottomNav() {
     { to: "/thuc-don", label: "Thực đơn", icon: UtensilsCrossed },
     { to: "/gio-hang", label: "Giỏ hàng", icon: ShoppingBag, badge: cartCount },
     { to: "/don-hang", label: "Đơn & Tôi", icon: ReceiptText },
+    { to: "/lien-he", label: "Liên hệ", icon: Phone },
   ];
 
   return (

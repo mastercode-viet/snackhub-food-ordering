@@ -6,6 +6,7 @@ import HomePage from "@/pages/HomePage";
 import MenuPage from "@/pages/MenuPage";
 import CartPage from "@/pages/CartPage";
 import OrdersPage from "@/pages/OrdersPage";
+import ContactPage from "@/pages/ContactPage";
 import ProductDetailPage from "@/pages/ProductDetailPage";
 import ComboDetailPage from "@/pages/ComboDetailPage";
 import CheckoutPage from "@/pages/CheckoutPage";
@@ -34,13 +35,14 @@ const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       {
-        // 4 tab chính — có Bottom Navigation
+        // 5 tab chính — có Bottom Navigation
         element: <AppLayout />,
         children: [
           { path: "/", element: <HomePage /> },
           { path: "/thuc-don", element: <MenuPage /> },
           { path: "/gio-hang", element: <CartPage /> },
           { path: "/don-hang", element: <OrdersPage /> },
+          { path: "/lien-he", element: <ContactPage /> },
         ],
       },
 
