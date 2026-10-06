@@ -941,7 +941,11 @@ export type Database = {
         Row: {
           checkin_radius_m: number
           close_time: string
+          delivery_cod_enabled: boolean
+          delivery_payos_enabled: boolean
           id: number
+          in_store_cod_enabled: boolean
+          in_store_payos_enabled: boolean
           is_open: boolean
           min_order_amount: number
           open_override_until: string | null
@@ -960,7 +964,11 @@ export type Database = {
         Insert: {
           checkin_radius_m?: number
           close_time?: string
+          delivery_cod_enabled?: boolean
+          delivery_payos_enabled?: boolean
           id?: number
+          in_store_cod_enabled?: boolean
+          in_store_payos_enabled?: boolean
           is_open?: boolean
           min_order_amount?: number
           open_override_until?: string | null
@@ -979,7 +987,11 @@ export type Database = {
         Update: {
           checkin_radius_m?: number
           close_time?: string
+          delivery_cod_enabled?: boolean
+          delivery_payos_enabled?: boolean
           id?: number
+          in_store_cod_enabled?: boolean
+          in_store_payos_enabled?: boolean
           is_open?: boolean
           min_order_amount?: number
           open_override_until?: string | null
