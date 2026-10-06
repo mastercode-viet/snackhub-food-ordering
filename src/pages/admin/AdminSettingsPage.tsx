@@ -30,6 +30,21 @@ function parseCoords(text: string): { lat: number; lng: number } | null | undefi
   return { lat, lng };
 }
 
+/** ISO của 00:00 ngày kế tiếp theo múi giờ quán — mốc hết hạn của "Mở quán nhận đơn ngay". */
+function endOfStoreDay(timeZone: string): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const n = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const elapsedSec = n("hour") * 3600 + n("minute") * 60 + n("second");
+  return new Date(now.getTime() + (86400 - elapsedSec) * 1000).toISOString();
+}
+
 export default function AdminSettingsPage() {
   const state = useAsync(fetchSettings, []);
 
@@ -70,6 +85,8 @@ function SettingsForm({
   const [coords, setCoords] = useState(toCoordsInput(settings));
   const [radius, setRadius] = useState(String(settings.checkin_radius_m));
   const [busy, setBusy] = useState(false);
+  const overrideActive =
+    !!settings.open_override_until && new Date(settings.open_override_until).getTime() > Date.now();
 
   useEffect(() => {
     setStoreName(settings.store_name);
@@ -226,13 +243,49 @@ function SettingsForm({
               : "Đang tạm nghỉ — khách không đặt được"}
           </div>
 
+          {overrideActive ? (
+            <div className="flex flex-col gap-2 rounded-card bg-secondary-container px-4 py-3 text-label-md text-on-secondary-container">
+              <span>
+                Đang mở nhận đơn ngay, bỏ qua khung giờ — tự hết hạn lúc{" "}
+                {new Date(settings.open_override_until!).toLocaleTimeString("vi-VN", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  timeZone: settings.timezone,
+                })}
+                .
+              </span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void run({ open_override_until: null }, "Đã về lại khung giờ thường.")}
+                className="min-h-[44px] rounded-card border border-outline-variant bg-surface-container-lowest px-4 text-label-lg text-on-surface disabled:opacity-50"
+              >
+                Về lại khung giờ thường
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(
+                  { is_open: true, open_override_until: endOfStoreDay(settings.timezone) },
+                  "Đã mở quán — nhận đơn ngay đến hết hôm nay.",
+                )
+              }
+              className="min-h-[44px] rounded-card bg-inverse-surface px-4 text-label-lg text-inverse-on-surface transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              Mở quán nhận đơn ngay
+            </button>
+          )}
+
           <button
             type="button"
             disabled={busy}
             onClick={() => {
               if (settings.is_open && !confirm("Ngừng nhận đơn ngay bây giờ?")) return;
               void run(
-                { is_open: !settings.is_open },
+                settings.is_open ? { is_open: false, open_override_until: null } : { is_open: true },
                 settings.is_open ? "Đã ngừng nhận đơn." : "Đã mở nhận đơn lại.",
               );
             }}

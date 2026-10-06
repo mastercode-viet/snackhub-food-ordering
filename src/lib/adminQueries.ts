@@ -724,6 +724,7 @@ export async function updateSettings(
       | "open_time"
       | "close_time"
       | "is_open"
+      | "open_override_until"
       | "shipping_fee"
       | "min_order_amount"
       | "store_latitude"
