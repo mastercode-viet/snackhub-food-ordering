@@ -944,6 +944,7 @@ export type Database = {
           id: number
           is_open: boolean
           min_order_amount: number
+          open_override_until: string | null
           open_time: string
           payos_hold_minutes: number
           show_banners: boolean
@@ -962,6 +963,7 @@ export type Database = {
           id?: number
           is_open?: boolean
           min_order_amount?: number
+          open_override_until?: string | null
           open_time?: string
           payos_hold_minutes?: number
           show_banners?: boolean
@@ -980,6 +982,7 @@ export type Database = {
           id?: number
           is_open?: boolean
           min_order_amount?: number
+          open_override_until?: string | null
           open_time?: string
           payos_hold_minutes?: number
           show_banners?: boolean
