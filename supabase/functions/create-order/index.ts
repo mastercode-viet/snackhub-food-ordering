@@ -159,7 +159,9 @@ Deno.serve(async (req) => {
       discountCode = data!.discount_code;
     }
 
-    const shippingFee = Number(settings.shipping_fee);
+    // Nhận tại quán: không giao nên không thu phí giao.
+    const isPickup = input.delivery_method === "pickup";
+    const shippingFee = isPickup ? 0 : Number(settings.shipping_fee);
     const totalAmount = Math.max(0, subtotal - discountAmount + shippingFee);
 
     // ── 6. Ghi đơn. order_code do trigger DB sinh ngẫu nhiên. ───────────────
@@ -172,7 +174,8 @@ Deno.serve(async (req) => {
         payment_status: input.payment_method === "payos" ? "pending" : "unpaid",
         customer_name: input.customer_name,
         customer_phone: input.customer_phone,
-        building: input.building,
+        delivery_method: input.delivery_method,
+        building: isPickup ? null : input.building,
         delivery_note: input.delivery_note ?? null,
         desired_delivery_time: input.desired_delivery_time ?? null,
         subtotal,

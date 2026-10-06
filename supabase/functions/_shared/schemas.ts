@@ -52,19 +52,29 @@ export const cartItemSchema = z.discriminatedUnion("kind", [
   comboCartItemSchema,
 ]);
 
-export const createOrderSchema = z.object({
-  customer_name: z.string().trim().min(1).max(100),
-  customer_phone: phoneSchema,
-  // Chỉ 3 điểm giao, và luôn giao ở tầng 1 — không còn nhận tầng/phòng/lớp.
-  building: z.enum(BUILDINGS),
-  delivery_note: z.string().trim().max(500).optional(),
-  payment_method: z.enum(["cod", "payos"]),
-  discount_code: z.string().trim().max(50).optional(),
-  // "Giờ muốn nhận" (ISO 8601 có múi giờ). Chỉ kiểm định dạng ở đây — sau giờ
-  // đặt / cùng ngày / trong giờ mở cửa do is_valid_desired_delivery_time() ở DB quyết định.
-  desired_delivery_time: z.string().datetime({ offset: true }).optional(),
-  items: z.array(cartItemSchema).min(1).max(50),
-});
+export const createOrderSchema = z
+  .object({
+    customer_name: z.string().trim().min(1).max(100),
+    customer_phone: phoneSchema,
+    // "delivery" = giao tận nơi, "pickup" = khách đến quán lấy (phí giao = 0, không toà).
+    // .default: bản frontend cũ chưa gửi trường này vẫn đặt được (hiểu là giao hàng).
+    delivery_method: z.enum(["delivery", "pickup"]).default("delivery"),
+    // Chỉ 3 điểm giao, và luôn giao ở tầng 1 — không còn nhận tầng/phòng/lớp.
+    // Bắt buộc với đơn giao hàng (kiểm ở superRefine), bỏ qua với đơn nhận tại quán.
+    building: z.enum(BUILDINGS).optional(),
+    delivery_note: z.string().trim().max(500).optional(),
+    payment_method: z.enum(["cod", "payos"]),
+    discount_code: z.string().trim().max(50).optional(),
+    // "Giờ muốn nhận" (ISO 8601 có múi giờ). Chỉ kiểm định dạng ở đây — sau giờ
+    // đặt / cùng ngày / trong giờ mở cửa do is_valid_desired_delivery_time() ở DB quyết định.
+    desired_delivery_time: z.string().datetime({ offset: true }).optional(),
+    items: z.array(cartItemSchema).min(1).max(50),
+  })
+  .superRefine((v, ctx) => {
+    if (v.delivery_method === "delivery" && !v.building) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["building"], message: "Đơn giao hàng phải chọn toà." });
+    }
+  });
 
 export const cancelPaymentSchema = z.object({
   order_code: z.string().trim().min(3).max(20),
