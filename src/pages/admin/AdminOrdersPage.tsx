@@ -212,6 +212,15 @@ export default function AdminOrdersPage() {
     return { criticalCount: crit, warningCount: warn };
   }, [orders, now]);
 
+  // Đơn hẹn giờ chưa giao, giờ hẹn sớm nhất trước — cho thanh nhắc "Hẹn giờ giao" đầu trang.
+  const upcomingScheduled = useMemo(
+    () =>
+      orders
+        .filter(isAwaitingScheduled)
+        .sort((a, b) => new Date(a.desired_delivery_time!).getTime() - new Date(b.desired_delivery_time!).getTime()),
+    [orders],
+  );
+
   // Danh sách toà nhà có đơn thật, để đổ vào <select> lọc — không bày sẵn
   // toà không ai đặt, và Superadmin biết ngay khu nào đang phát sinh đơn.
   const buildings = useMemo(() => {
@@ -388,6 +397,50 @@ export default function AdminOrdersPage() {
         </div>
       </header>
 
+      {/* Thanh nhắc đơn hẹn giờ — luôn hiện khi còn đơn hẹn chưa giao, màu theo đơn gần hạn nhất. */}
+      {upcomingScheduled.length > 0 &&
+        (() => {
+          const next = upcomingScheduled[0];
+          const sla = getDesiredDeliverySla(next.desired_delivery_time!, now);
+          const tone =
+            sla.level === "critical"
+              ? "bg-error-container text-on-error-container"
+              : sla.level === "warning"
+                ? "bg-tertiary-fixed text-on-tertiary-fixed"
+                : "bg-inverse-surface text-inverse-on-surface";
+          return (
+            <div className={`flex flex-wrap items-center justify-between gap-3 rounded-card-lg px-4 py-3 shadow-card ${tone}`}>
+              <div className="flex min-w-0 items-center gap-3">
+                <AlarmClock
+                  size={26}
+                  strokeWidth={2.4}
+                  className={`shrink-0 ${sla.level === "critical" ? "animate-bounce" : ""}`}
+                />
+                <div className="min-w-0">
+                  <p className="text-label-lg">
+                    {upcomingScheduled.length} đơn hẹn giờ chưa giao · gần nhất{" "}
+                    <span className="text-headline-sm">{formatDesiredTime(next.desired_delivery_time!)}</span> ({sla.label})
+                  </p>
+                  <p className="truncate text-body-sm opacity-90">
+                    {next.order_code} · {next.customer_name} · Toà {next.building}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab("scheduled");
+                  setSelectedId(next.id);
+                }}
+                className="inline-flex min-h-[40px] items-center gap-1 rounded-card border border-outline-variant bg-surface-container-lowest px-3 text-label-md font-semibold text-on-surface"
+              >
+                Xem đơn hẹn giờ
+                <ChevronRight size={14} strokeWidth={2.5} />
+              </button>
+            </div>
+          );
+        })()}
+
       {/* Thanh cảnh báo tổng quan SLA nếu có đơn bị trễ */}
       {(criticalCount > 0 || warningCount > 0) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-card-lg border border-error/30 bg-error-container/40 px-4 py-3 text-on-error-container">
@@ -435,6 +488,7 @@ export default function AdminOrdersPage() {
           else count = counts.get(t.key) ?? 0;
 
           const isSlaTab = t.key === "sla_overdue";
+          const isScheduledTab = t.key === "scheduled";
 
           return (
             <button
@@ -445,10 +499,14 @@ export default function AdminOrdersPage() {
                 active
                   ? isSlaTab
                     ? "bg-error text-on-error shadow-cta"
-                    : "bg-primary-container text-on-primary-container shadow-cta"
+                    : isScheduledTab
+                      ? "bg-inverse-surface text-inverse-on-surface shadow-cta"
+                      : "bg-primary-container text-on-primary-container shadow-cta"
                   : isSlaTab && count > 0
                     ? "border border-error/50 bg-error-container/50 text-error hover:bg-error-container"
-                    : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
+                    : isScheduledTab && count > 0
+                      ? "border-2 border-inverse-surface text-on-surface hover:bg-surface-container"
+                      : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
               }`}
             >
               {t.label}
@@ -1005,6 +1063,9 @@ function OrderRow({
       alertCardClass = "border-l-4 border-l-error bg-error-container/30 hover:bg-error-container/50";
     } else if (sla.level === "warning") {
       alertCardClass = "border-l-4 border-l-amber-500 bg-amber-50/50 hover:bg-amber-100/50";
+    } else if (order.desired_delivery_time) {
+      // Đơn hẹn giờ chưa tới mốc cảnh báo — vẫn đánh dấu để nhân viên nhận ra ngay.
+      alertCardClass = "border-l-4 border-l-inverse-surface hover:bg-surface-container-low";
     }
   }
 
@@ -1046,8 +1107,8 @@ function OrderRow({
         )}
 
         {order.desired_delivery_time && !isFinished && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-inverse-surface px-2.5 py-0.5 text-label-xs font-bold text-inverse-on-surface">
-            <AlarmClock size={12} strokeWidth={2.4} />
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-inverse-surface px-3 py-1 text-label-md font-bold text-inverse-on-surface">
+            <AlarmClock size={15} strokeWidth={2.4} />
             Giao {formatDesiredTime(order.desired_delivery_time)}
           </span>
         )}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlarmClock, X } from "lucide-react";
+import { AlarmClock, BellRing, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import type { ScheduledAlert } from "@/hooks/useScheduledOrderAlerts";
 import { formatDesiredTime, getDesiredDeliverySla } from "@/lib/orderSla";
@@ -12,9 +12,14 @@ import { formatDesiredTime, getDesiredDeliverySla } from "@/lib/orderSla";
 export default function ScheduledOrderAlerts({
   alerts,
   onDismiss,
+  soundEnabled,
+  onEnableSound,
 }: {
   alerts: ScheduledAlert[];
   onDismiss: (orderId: string) => void;
+  /** Trình duyệt chỉ cho phát âm sau khi Admin bấm bật — chưa bật thì hiện nút ngay trên pop-up. */
+  soundEnabled: boolean;
+  onEnableSound: () => void;
 }) {
   const navigate = useNavigate();
   // Đếm lại "còn X phút" trong lúc pop-up đang mở.
@@ -66,7 +71,17 @@ export default function ScheduledOrderAlerts({
                   <X size={16} strokeWidth={2.4} />
                 </button>
               </div>
-              <div className="mt-3 flex justify-end gap-2">
+              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                {!soundEnabled && (
+                  <button
+                    type="button"
+                    onClick={onEnableSound}
+                    className="mr-auto inline-flex min-h-[40px] items-center gap-1.5 rounded-card border border-outline-variant px-3 text-label-md"
+                  >
+                    <BellRing size={16} strokeWidth={2.4} />
+                    Bật chuông
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onDismiss(a.orderId)}
