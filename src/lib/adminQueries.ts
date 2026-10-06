@@ -575,7 +575,15 @@ export async function updateSettings(
   patch: Partial<
     Pick<
       StoreSettings,
-      "store_name" | "open_time" | "close_time" | "is_open" | "shipping_fee" | "min_order_amount"
+      | "store_name"
+      | "open_time"
+      | "close_time"
+      | "is_open"
+      | "shipping_fee"
+      | "min_order_amount"
+      | "store_latitude"
+      | "store_longitude"
+      | "checkin_radius_m"
     >
   >,
 ): Promise<void> {

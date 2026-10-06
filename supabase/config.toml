@@ -19,3 +19,8 @@ verify_jwt = false
 # bảo chữ ký hợp lệ trước khi vào tới code.
 [functions.create-staff-account]
 verify_jwt = true
+
+# pg_cron gọi qua pg_net, không có JWT. Hàm tự kiểm tra header x-cron-secret
+# với secret "cron_secret" trong Vault (verify_cron_secret()).
+[functions.purge-attendance-media]
+verify_jwt = false

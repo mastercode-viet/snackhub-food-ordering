@@ -13,6 +13,22 @@ function toTimeInput(t: string): string {
   return t.slice(0, 5);
 }
 
+function toCoordsInput(s: StoreSettings): string {
+  return s.store_latitude != null && s.store_longitude != null ? `${s.store_latitude}, ${s.store_longitude}` : "";
+}
+
+/** "20.976038, 105.817109" (dạng Google Maps copy ra) -> toạ độ; "" = tắt kiểm tra vị trí; sai định dạng = undefined. */
+function parseCoords(text: string): { lat: number; lng: number } | null | undefined {
+  const t = text.trim();
+  if (!t) return null;
+  const m = t.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!m) return undefined;
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return undefined;
+  return { lat, lng };
+}
+
 export default function AdminSettingsPage() {
   const state = useAsync(fetchSettings, []);
 
@@ -47,6 +63,8 @@ function SettingsForm({
   const [closeTime, setCloseTime] = useState(toTimeInput(settings.close_time));
   const [shippingFee, setShippingFee] = useState(Number(settings.shipping_fee));
   const [minOrder, setMinOrder] = useState(Number(settings.min_order_amount));
+  const [coords, setCoords] = useState(toCoordsInput(settings));
+  const [radius, setRadius] = useState(String(settings.checkin_radius_m));
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -55,6 +73,8 @@ function SettingsForm({
     setCloseTime(toTimeInput(settings.close_time));
     setShippingFee(Number(settings.shipping_fee));
     setMinOrder(Number(settings.min_order_amount));
+    setCoords(toCoordsInput(settings));
+    setRadius(String(settings.checkin_radius_m));
   }, [settings]);
 
   async function run(patch: Parameters<typeof updateSettings>[0], okMessage: string) {
@@ -76,6 +96,16 @@ function SettingsForm({
       toast.error("Tên quán không được để trống.");
       return;
     }
+    const location = parseCoords(coords);
+    if (location === undefined) {
+      toast.error('Toạ độ quán phải có dạng "vĩ độ, kinh độ", ví dụ 20.976038, 105.817109.');
+      return;
+    }
+    const radiusM = Number(radius);
+    if (!Number.isInteger(radiusM) || radiusM < 20 || radiusM > 5000) {
+      toast.error("Bán kính chấm công phải là số nguyên từ 20 đến 5000 m.");
+      return;
+    }
 
     void run(
       {
@@ -84,6 +114,9 @@ function SettingsForm({
         close_time: `${closeTime}:00`,
         shipping_fee: shippingFee,
         min_order_amount: minOrder,
+        store_latitude: location?.lat ?? null,
+        store_longitude: location?.lng ?? null,
+        checkin_radius_m: radiusM,
       },
       "Đã lưu cài đặt.",
     );
@@ -129,6 +162,29 @@ function SettingsForm({
           </Field>
           <Field label="Đơn tối thiểu (đ)">
             <MoneyInput value={minOrder} onChange={setMinOrder} />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <Field label="Toạ độ quán (chấm công)" hint="Chuột phải trên Google Maps để copy. Để trống là tắt kiểm tra vị trí.">
+            <input
+              value={coords}
+              onChange={(e) => setCoords(e.target.value)}
+              placeholder="20.976038, 105.817109"
+              inputMode="decimal"
+              className={inputClass}
+            />
+          </Field>
+          <Field label="Bán kính (m)">
+            <input
+              type="number"
+              min={20}
+              max={5000}
+              step={10}
+              value={radius}
+              onChange={(e) => setRadius(e.target.value)}
+              className={`${inputClass} w-28`}
+            />
           </Field>
         </div>
 

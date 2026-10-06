@@ -930,6 +930,7 @@ export type Database = {
       }
       store_settings: {
         Row: {
+          checkin_radius_m: number
           close_time: string
           id: number
           is_open: boolean
@@ -937,11 +938,14 @@ export type Database = {
           open_time: string
           payos_hold_minutes: number
           shipping_fee: number
+          store_latitude: number | null
+          store_longitude: number | null
           store_name: string
           timezone: string
           updated_at: string
         }
         Insert: {
+          checkin_radius_m?: number
           close_time?: string
           id?: number
           is_open?: boolean
@@ -949,11 +953,14 @@ export type Database = {
           open_time?: string
           payos_hold_minutes?: number
           shipping_fee?: number
+          store_latitude?: number | null
+          store_longitude?: number | null
           store_name?: string
           timezone?: string
           updated_at?: string
         }
         Update: {
+          checkin_radius_m?: number
           close_time?: string
           id?: number
           is_open?: boolean
@@ -961,6 +968,8 @@ export type Database = {
           open_time?: string
           payos_hold_minutes?: number
           shipping_fee?: number
+          store_latitude?: number | null
+          store_longitude?: number | null
           store_name?: string
           timezone?: string
           updated_at?: string
@@ -973,6 +982,9 @@ export type Database = {
           check_out_at: string | null
           created_at: string
           id: string
+          image_url: string | null
+          latitude: number | null
+          longitude: number | null
           staff_id: string
           total_minutes_worked: number | null
         }
@@ -981,6 +993,9 @@ export type Database = {
           check_out_at?: string | null
           created_at?: string
           id?: string
+          image_url?: string | null
+          latitude?: number | null
+          longitude?: number | null
           staff_id: string
           total_minutes_worked?: number | null
         }
@@ -989,6 +1004,9 @@ export type Database = {
           check_out_at?: string | null
           created_at?: string
           id?: string
+          image_url?: string | null
+          latitude?: number | null
+          longitude?: number | null
           staff_id?: string
           total_minutes_worked?: number | null
         }

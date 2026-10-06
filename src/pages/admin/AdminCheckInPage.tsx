@@ -3,12 +3,18 @@ import { ChevronRight } from "lucide-react";
 import EmptyState from "@/components/ui/EmptyState";
 import type { AdminOutletContext } from "@/routes/AdminLayout";
 import CheckInOutWidget from "@/components/admin/CheckInOutWidget";
+import AttendanceHistoryTable from "@/components/admin/AttendanceHistoryTable";
 
-/** Tab riêng cho check-in/out — trước đây là widget nổi cố định trên mọi màn /admin/*. */
+/**
+ * Tab chấm công. Nhân viên (có staff_profiles) thấy nút check-in (GPS + ảnh);
+ * superadmin thấy thêm lịch sử điểm danh của mọi người. Quyền đọc thật do RLS
+ * time_logs / Storage quyết định, ở đây chỉ ẩn/hiện.
+ */
 export default function AdminCheckInPage() {
-  const { isStaff, staffId } = useOutletContext<AdminOutletContext>();
+  const { isAdmin, isStaff, staffId } = useOutletContext<AdminOutletContext>();
+  const canCheckIn = isStaff && !!staffId;
 
-  if (!isStaff || !staffId) {
+  if (!canCheckIn && !isAdmin) {
     return (
       <div className="flex flex-col gap-space-lg">
         <EmptyState
@@ -31,11 +37,12 @@ export default function AdminCheckInPage() {
       <header className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
         <h1 className="text-headline-sm text-on-surface">Chấm công</h1>
         <p className="mt-1 text-body-sm text-on-surface-variant">
-          Check-in khi bắt đầu ca, Check-out khi kết thúc — hệ thống tự tính giờ công.
+          Check-in khi bắt đầu ca (cần bật định vị và chụp ảnh selfie), Check-out khi kết thúc — hệ thống tự tính giờ công.
         </p>
       </header>
 
-      <CheckInOutWidget staffId={staffId} />
+      {canCheckIn && <CheckInOutWidget staffId={staffId} />}
+      {isAdmin && <AttendanceHistoryTable />}
     </div>
   );
 }

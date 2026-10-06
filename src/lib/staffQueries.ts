@@ -61,14 +61,33 @@ export async function fetchShiftAssignmentForStaffOnDate(
   return data as unknown as ShiftAssignmentWithShift | null;
 }
 
-/** staffId phải là auth.uid() của người gọi — RLS (with_check) sẽ chặn nếu không khớp. */
-export async function checkIn(staffId: string): Promise<TimeLog> {
+const ATTENDANCE_BUCKET = "attendance_images";
+
+/**
+ * staffId phải là auth.uid() của người gọi — RLS (with_check) sẽ chặn nếu không khớp.
+ * Ảnh lưu ở "<staffId>/<uuid>.jpg": policy Storage chỉ cho ghi vào thư mục của
+ * chính mình. Cột image_url giữ PATH (bucket private), không phải URL công khai.
+ */
+export async function checkIn(
+  staffId: string,
+  proof: { latitude: number; longitude: number; image: Blob },
+): Promise<TimeLog> {
+  const path = `${staffId}/${crypto.randomUUID()}.jpg`;
+  const { error: uploadErr } = await supabase.storage
+    .from(ATTENDANCE_BUCKET)
+    .upload(path, proof.image, { contentType: "image/jpeg", upsert: false });
+  if (uploadErr) throw new Error("Không tải được ảnh check-in lên, thử lại nhé.");
+
   const { data, error } = await supabase
     .from("time_logs")
-    .insert({ staff_id: staffId })
+    .insert({ staff_id: staffId, latitude: proof.latitude, longitude: proof.longitude, image_url: path })
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    // P0001 = trigger enforce_checkin_location chặn (ở xa quán / thiếu toạ độ) — message đã là tiếng Việt.
+    if (error.code === "P0001") throw new Error(error.message);
+    throw error;
+  }
   return data;
 }
 
@@ -361,6 +380,39 @@ export async function adminForceCheckout(id: string): Promise<TimeLog> {
 export async function deleteTimeLog(id: string): Promise<void> {
   const { error } = await supabase.from("time_logs").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ── Lịch sử điểm danh (ảnh + toạ độ) — chỉ superadmin ─────────────────────
+
+/** range from/to là ngày "YYYY-MM-DD" theo giờ máy, tính trọn ngày `to`; "all" = không lọc ngày (tối đa 500 dòng mới nhất). */
+export async function fetchAttendanceHistory(range: "all" | { from: string; to: string }): Promise<OpenTimeLog[]> {
+  let query = supabase
+    .from("time_logs")
+    .select("*, staff:staff_profiles(id, full_name)")
+    .order("check_in_at", { ascending: false })
+    .limit(500);
+  if (range !== "all") {
+    const toExclusive = new Date(`${range.to}T00:00:00`);
+    toExclusive.setDate(toExclusive.getDate() + 1);
+    query = query
+      .gte("check_in_at", new Date(`${range.from}T00:00:00`).toISOString())
+      .lt("check_in_at", toExclusive.toISOString());
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return data as unknown as OpenTimeLog[];
+}
+
+/** Bucket private → đổi path sang signed URL (1 giờ). Trả map path → URL, path lỗi thì bỏ qua. */
+export async function fetchAttendanceImageUrls(paths: string[]): Promise<Record<string, string>> {
+  if (paths.length === 0) return {};
+  const { data, error } = await supabase.storage.from(ATTENDANCE_BUCKET).createSignedUrls(paths, 60 * 60);
+  if (error) throw error;
+  const urls: Record<string, string> = {};
+  for (const item of data) {
+    if (item.path && item.signedUrl) urls[item.path] = item.signedUrl;
+  }
+  return urls;
 }
 
 export type StaffAttendanceStats = {

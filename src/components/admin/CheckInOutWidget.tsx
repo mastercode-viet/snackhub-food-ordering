@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { Clock, LogIn, LogOut } from "lucide-react";
+import { distanceMeters, getCurrentPosition } from "@/lib/geolocation";
+import { fetchStoreSettings } from "@/lib/queries";
+import { compressImage } from "@/lib/imageCompress";
+import CameraCapture from "@/components/admin/CameraCapture";
 import { formatClock, formatTimeOfDay, toIsoDate } from "@/lib/format";
 import { toast } from "@/store/toast";
 import {
@@ -38,6 +42,8 @@ async function warnIfOffShift(staffId: string, actualIso: string, boundary: "sta
   }
 }
 
+type Position = { latitude: number; longitude: number };
+
 /**
  * Nội dung chính của tab "Chấm công" (`/admin/cham-cong`) — AdminCheckInPage
  * quyết định có mount hay không (chỉ tài khoản có hồ sơ staff_profiles),
@@ -52,6 +58,9 @@ export default function CheckInOutWidget({ staffId }: { staffId: string }) {
   const [todayShift, setTodayShift] = useState<ShiftAssignmentWithShift | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Check-in: lấy vị trí trước (từ chối thì dừng), có vị trí rồi mới mở camera trong app.
+  const [position, setPosition] = useState<Position | null>(null);
+  const [step, setStep] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,17 +86,47 @@ export default function CheckInOutWidget({ staffId }: { staffId: string }) {
     };
   }, [staffId]);
 
-  async function handleCheckIn() {
+  async function handleLocate() {
     setBusy(true);
+    setStep("Đang lấy vị trí…");
     try {
-      const row = await checkIn(staffId);
-      setShift(row);
-      toast.success(`Đã check-in lúc ${formatClock(row.check_in_at)}. Chúc ca làm việc suôn sẻ!`);
-      void warnIfOffShift(staffId, row.check_in_at, "start_time");
+      const [pos, settings] = await Promise.all([getCurrentPosition(), fetchStoreSettings()]);
+      // Báo sớm trước khi mở camera — chặn thật vẫn là trigger enforce_checkin_location ở DB.
+      if (settings.store_latitude != null && settings.store_longitude != null) {
+        const d = distanceMeters(pos, { latitude: settings.store_latitude, longitude: settings.store_longitude });
+        if (d > settings.checkin_radius_m) {
+          toast.error(
+            `Bạn đang cách quán khoảng ${Math.round(d)} m — chỉ được check-in trong bán kính ${settings.checkin_radius_m} m.`,
+          );
+          return;
+        }
+      }
+      setPosition(pos);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Không check-in được, thử lại nhé.");
+      toast.error(e instanceof Error ? e.message : "Không lấy được vị trí, thử lại nhé.");
     } finally {
       setBusy(false);
+      setStep(null);
+    }
+  }
+
+  async function handlePhoto(photo: Blob) {
+    if (!position) return;
+    setBusy(true);
+    try {
+      setStep("Đang nén ảnh…");
+      const image = await compressImage(photo);
+      setStep("Đang tải lên…");
+      const row = await checkIn(staffId, { ...position, image });
+      setShift(row);
+      setPosition(null);
+      toast.success(`Đã check-in lúc ${formatClock(row.check_in_at)}. Chúc ca làm việc suôn sẻ!`);
+      void warnIfOffShift(staffId, row.check_in_at, "start_time");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Không check-in được, thử lại nhé.");
+    } finally {
+      setBusy(false);
+      setStep(null);
     }
   }
 
@@ -150,8 +189,8 @@ export default function CheckInOutWidget({ staffId }: { staffId: string }) {
         ) : (
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void handleCheckIn()}
+            disabled={busy || !!position}
+            onClick={() => void handleLocate()}
             className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-card bg-inverse-surface px-3 text-label-md font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:opacity-50"
           >
             <LogIn size={16} strokeWidth={2.2} />
@@ -159,6 +198,12 @@ export default function CheckInOutWidget({ staffId }: { staffId: string }) {
           </button>
         )}
       </div>
+
+      {step && <p className="text-label-sm text-on-surface-variant" aria-live="polite">{step}</p>}
+
+      {!shift && position && !busy && (
+        <CameraCapture onCapture={(photo) => void handlePhoto(photo)} onClose={() => setPosition(null)} />
+      )}
     </section>
   );
 }
