@@ -6,7 +6,8 @@
 
 **Người dùng:**
 - **Khách hàng (Guest):** không cần đăng nhập. Xem danh mục, tùy biến món (add-ons/toppings), áp mã giảm giá, đặt giao nội khu, tra cứu đơn bằng mã đơn hàng, mua lại đơn cũ (1-click reorder).
-- **Admin (1 vai trò duy nhất, full quyền):** đăng nhập bằng tài khoản Supabase Auth, quản lý toàn diện qua bộ giao diện `/admin/*`:
+- **Phân quyền Admin vs Nhân viên:** có 2 nhóm tài khoản đăng nhập `/admin/*`. **Superadmin / admin cũ** (`is_admin()` = true) toàn quyền. **Nhân viên** (`is_staff()` có, `is_admin()` không) chỉ được dùng **Đơn hàng** (`/admin/don-hang`), **Chấm công** (`/admin/cham-cong`) và **Lịch của tôi** (`/admin/lich-cua-toi`); mọi mục khác bị ẩn khỏi `AdminSidebar` và `AdminLayout` tự chuyển hướng về `/admin/lich-cua-toi` nếu gõ tay URL (danh sách `STAFF_ALLOWED_PATHS`). Sau khi đăng nhập, nhân viên vào thẳng **Lịch của tôi**; nếu hôm nay có ca được gán sắp tới (trong 60 phút) hoặc đang diễn ra mà chưa check-in, `UpcomingShiftPrompt` hiện popup nhắc kèm nút Check-in dẫn tới `/admin/cham-cong` (mỗi ca nhắc 1 lần/phiên trình duyệt). Đây chỉ là lớp UI — RLS ở DB vẫn là lớp chặn thật.
+- **Admin (superadmin, full quyền):** đăng nhập bằng tài khoản Supabase Auth, quản lý toàn diện qua bộ giao diện `/admin/*`:
   - **Tổng quan (`/admin/thong-ke`):** thống kê doanh thu, số lượng đơn, biểu đồ, đơn hàng mới nhất, chuông thông báo đơn mới.
   - **Xử lý đơn (`/admin/don-hang`):** cập nhật trạng thái đơn (Realtime), bộ lọc theo trạng thái, tích hợp hệ thống **Cảnh báo trễ hạn (SLA Alert)** với bộ đếm thời gian thực (đổi màu vàng/đỏ khi quá 15-20 phút và tự động ghim lên đầu danh sách ưu tiên), in hóa đơn nhiệt chuẩn 80mm.
   - **Thực đơn & Danh mục (`/admin/thuc-don`):** thêm/sửa món, bật/tắt còn hàng, tải ảnh lên Supabase Storage, quản lý danh mục.
