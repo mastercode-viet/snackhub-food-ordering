@@ -274,7 +274,7 @@ export default function OrdersPage() {
                   {loading ? (
                     <Skeleton className="h-7 w-24 shrink-0 rounded-full" />
                   ) : order ? (
-                    <OrderStatusBadge status={order.status} />
+                    <OrderStatusBadge status={order.status} deliveryMethod={order.delivery_method} />
                   ) : (
                     <span className="shrink-0 rounded-full bg-surface-container-high px-3 py-1 text-label-sm text-on-surface-variant">
                       Không tra được

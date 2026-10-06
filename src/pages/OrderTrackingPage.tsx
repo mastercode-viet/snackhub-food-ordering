@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import {
   AlarmClock,
   ArrowLeft,
+  Store,
   Ban,
   CalendarDays,
   Check,
@@ -30,6 +31,7 @@ import { buildReorder } from "@/lib/reorder";
 import { copyText } from "@/lib/clipboard";
 import { formatClock, formatDate, formatVnd } from "@/lib/format";
 import { formatDesiredTime } from "@/lib/orderSla";
+import { STORE_CONTACT } from "@/lib/contact";
 import { supabase } from "@/lib/supabase";
 import { useCartStore } from "@/store/cart";
 import { useRecentOrders } from "@/store/recentOrders";
@@ -199,6 +201,7 @@ export default function OrderTrackingPage() {
     .filter(Boolean)
     .join(" · ");
 
+  const isPickup = order.delivery_method === "pickup";
   const waitingPayment = order.payment_method === "payos" && order.payment_status === "pending";
 
   return (
@@ -266,7 +269,7 @@ export default function OrderTrackingPage() {
 
               </div>
             </div>
-            <OrderStatusBadge status={order.status} />
+            <OrderStatusBadge status={order.status} deliveryMethod={order.delivery_method} />
           </div>
 
         </section>
@@ -279,7 +282,13 @@ export default function OrderTrackingPage() {
             </span>
             <div className="min-w-0">
               <p className="text-label-sm uppercase">
-                {order.status === "completed" ? "Bạn đã hẹn nhận lúc" : order.status === "cancelled" ? "Giờ đã hẹn" : "Quán sẽ giao lúc"}
+                {order.status === "completed"
+                  ? "Bạn đã hẹn nhận lúc"
+                  : order.status === "cancelled"
+                    ? "Giờ đã hẹn"
+                    : order.delivery_method === "pickup"
+                      ? "Hẹn bạn đến lấy lúc"
+                      : "Quán sẽ giao lúc"}
               </p>
               <p className="text-headline-lg">{formatDesiredTime(order.desired_delivery_time)}</p>
               <p className="text-body-sm opacity-90">{formatDate(order.desired_delivery_time)}</p>
@@ -308,15 +317,35 @@ export default function OrderTrackingPage() {
             cancelledAt={order.cancelled_at}
             cancelReason={order.cancel_reason}
             paymentStatus={order.payment_status}
+            deliveryMethod={order.delivery_method}
           />
         </section>
 
         <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
           <div className="mb-3 flex items-center gap-2">
-            <MapPin size={18} className="text-secondary" strokeWidth={2.4} />
-            <h2 className="text-headline-sm font-bold text-on-surface">Giao đến</h2>
+            {isPickup ? (
+              <Store size={18} className="text-secondary" strokeWidth={2.4} />
+            ) : (
+              <MapPin size={18} className="text-secondary" strokeWidth={2.4} />
+            )}
+            <h2 className="text-headline-sm font-bold text-on-surface">{isPickup ? "Nhận tại quán" : "Giao đến"}</h2>
           </div>
-          <p className="text-label-lg font-bold text-on-surface">{address}</p>
+          {isPickup ? (
+            <>
+              <p className="text-label-lg font-bold text-on-surface">{STORE_CONTACT.address}</p>
+              <a
+                href={STORE_CONTACT.mapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex min-h-[44px] items-center gap-1.5 text-label-md font-semibold text-on-surface underline underline-offset-2"
+              >
+                <MapPin size={15} strokeWidth={2.4} />
+                Xem bản đồ
+              </a>
+            </>
+          ) : (
+            <p className="text-label-lg font-bold text-on-surface">{address}</p>
+          )}
           <p className="mt-0.5 text-body-md text-on-surface-variant font-medium">
             {order.customer_name} · {order.customer_phone}
           </p>

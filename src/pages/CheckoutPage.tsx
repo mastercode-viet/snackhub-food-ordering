@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { closedMessage } from "@/components/home/StoreStatus";
 import { Link, useNavigate } from "react-router-dom";
-import { AlarmClock, ArrowLeft, Info, MapPin, NotebookPen, Receipt, Ticket, User } from "lucide-react";
+import { AlarmClock, ArrowLeft, Info, MapPin, NotebookPen, Receipt, Store, Ticket, User } from "lucide-react";
 import Field from "@/components/checkout/Field";
 import Select from "@/components/checkout/Select";
 import PaymentMethods from "@/components/checkout/PaymentMethods";
 import DiscountBox from "@/components/checkout/DiscountBox";
 import TimeWheelPicker from "@/components/checkout/TimeWheelPicker";
+import DeliveryMethodToggle from "@/components/checkout/DeliveryMethodToggle";
+import { STORE_CONTACT } from "@/lib/contact";
 import { Toggle } from "@/components/admin/AdminForm";
 import { Skeleton } from "@/components/Skeleton";
 import { useStoreOpen, useStoreSettings } from "@/hooks/useMenu";
@@ -38,6 +40,7 @@ export default function CheckoutPage() {
   const clearCart = useCartStore((s) => s.clear);
   const savedProfile = useProfileStore((s) => s.profile);
   const saveProfile = useProfileStore((s) => s.save);
+  const setDeliveryMethod = useProfileStore((s) => s.setDeliveryMethod);
   const rememberOrder = useRecentOrders((s) => s.remember);
 
   const settings = useStoreSettings();
@@ -108,7 +111,9 @@ export default function CheckoutPage() {
 
   const count = items.reduce((n, i) => n + i.quantity, 0);
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-  const shippingFee = Number(settings.data?.shipping_fee ?? 0);
+  // Nhận tại quán: không giao nên phí giao = 0 (server cũng tính lại y hệt).
+  const isPickup = form.delivery_method === "pickup";
+  const shippingFee = isPickup ? 0 : Number(settings.data?.shipping_fee ?? 0);
   const discountAmount = discount?.discount_amount ?? 0;
   const total = Math.max(0, subtotal - discountAmount + shippingFee);
 
@@ -139,7 +144,8 @@ export default function CheckoutPage() {
       const result = await createOrder({
         customer_name: parsed.data.customer_name,
         customer_phone: parsed.data.customer_phone,
-        building: parsed.data.building,
+        delivery_method: parsed.data.delivery_method,
+        building: parsed.data.delivery_method === "pickup" ? undefined : parsed.data.building,
         delivery_note: composeDeliveryNote(parsed.data),
         payment_method: parsed.data.payment_method,
         discount_code: discount?.code,
@@ -162,9 +168,11 @@ export default function CheckoutPage() {
 
       // Nhớ địa chỉ cho lần sau, rồi dọn giỏ
       saveProfile({
+        delivery_method: parsed.data.delivery_method,
         customer_name: parsed.data.customer_name,
         customer_phone: parsed.data.customer_phone,
-        building: parsed.data.building,
+        // Nhận tại quán thì giữ toà lần trước, lần sau chuyển lại giao hàng khỏi chọn lại.
+        building: parsed.data.building ?? savedProfile.building,
         address_detail: parsed.data.address_detail ?? "",
       });
       clearCart();
@@ -214,32 +222,59 @@ export default function CheckoutPage() {
       {/* Desktop: form bên trái, tóm tắt tiền và nút đặt hàng bên phải dạng sticky */}
       <div className="mx-auto w-full max-w-content px-margin-mobile pt-1 md:grid md:grid-cols-[minmax(0,1fr)_380px] md:items-start md:gap-gutter md:px-gutter">
         <div className="flex min-w-0 flex-col gap-3">
-        <Card icon={<MapPin size={18} />} title="Giao đến">
-          <Select
-            label="Toà"
-            required
-            value={form.building ?? ""}
-            options={BUILDINGS}
-            placeholder="Chọn toà"
-            error={errors.building}
-            onChange={(v) => set("building", v as CheckoutForm["building"])}
-          />
+        <DeliveryMethodToggle
+          value={form.delivery_method}
+          onChange={(v) => {
+            set("delivery_method", v);
+            setDeliveryMethod(v); // giữ đồng bộ với Giỏ hàng
+          }}
+        />
 
-          <p className="flex items-start gap-1.5 text-label-sm text-on-surface-variant">
-            <Info size={14} strokeWidth={2.2} aria-hidden="true" className="mt-px shrink-0" />
-            <span>{DELIVERY_POINT_NOTE}</span>
-          </p>
+        {isPickup ? (
+          <Card icon={<Store size={18} />} title="Nhận tại quán">
+            <p className="text-body-md text-on-surface">{STORE_CONTACT.address}</p>
+            <a
+              href={STORE_CONTACT.mapsUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex min-h-[44px] w-fit items-center gap-1.5 text-label-md font-semibold text-on-surface underline underline-offset-2"
+            >
+              <MapPin size={16} strokeWidth={2.2} />
+              Xem bản đồ
+            </a>
+            <p className="flex items-start gap-1.5 rounded-card bg-secondary-fixed px-3 py-2 text-label-md text-on-secondary-fixed">
+              <Info size={14} strokeWidth={2.2} aria-hidden="true" className="mt-0.5 shrink-0" />
+              <span>Miễn phí giao. Đến quầy đọc mã đơn để nhận món — quán báo khi món đã xong.</span>
+            </p>
+          </Card>
+        ) : (
+          <Card icon={<MapPin size={18} />} title="Giao đến">
+            <Select
+              label="Toà"
+              required
+              value={form.building ?? ""}
+              options={BUILDINGS}
+              placeholder="Chọn toà"
+              error={errors.building}
+              onChange={(v) => set("building", v as CheckoutForm["building"])}
+            />
 
-          <Field
-            label="Chi tiết địa chỉ"
-            placeholder="Đứng ở sảnh cạnh cầu thang bộ, mặc áo khoác xanh..."
-            value={form.address_detail ?? ""}
-            error={errors.address_detail}
-            hint="Giúp quán tìm đúng chỗ nhanh hơn"
-            maxLength={200}
-            onChange={(e) => set("address_detail", e.target.value)}
-          />
-        </Card>
+            <p className="flex items-start gap-1.5 text-label-sm text-on-surface-variant">
+              <Info size={14} strokeWidth={2.2} aria-hidden="true" className="mt-px shrink-0" />
+              <span>{DELIVERY_POINT_NOTE}</span>
+            </p>
+
+            <Field
+              label="Chi tiết địa chỉ"
+              placeholder="Đứng ở sảnh cạnh cầu thang bộ, mặc áo khoác xanh..."
+              value={form.address_detail ?? ""}
+              error={errors.address_detail}
+              hint="Giúp quán tìm đúng chỗ nhanh hơn"
+              maxLength={200}
+              onChange={(e) => set("address_detail", e.target.value)}
+            />
+          </Card>
+        )}
 
         <Card icon={<User size={18} />} title="Người nhận">
           <Field
@@ -264,10 +299,18 @@ export default function CheckoutPage() {
           />
         </Card>
 
-        <Card icon={<AlarmClock size={18} />} title="Giờ muốn nhận">
+        <Card icon={<AlarmClock size={18} />} title={isPickup ? "Giờ muốn lấy" : "Giờ muốn nhận"}>
           <Toggle
-            label="Hẹn giờ giao"
-            hint={scheduled ? "Quán giao gần đúng giờ bạn chọn" : "Đang tắt — quán giao sớm nhất có thể"}
+            label={isPickup ? "Hẹn giờ lấy" : "Hẹn giờ giao"}
+            hint={
+              isPickup
+                ? scheduled
+                  ? "Quán làm xong trước giờ bạn chọn"
+                  : "Đang tắt — quán làm ngay, xong là báo bạn"
+                : scheduled
+                  ? "Quán giao gần đúng giờ bạn chọn"
+                  : "Đang tắt — quán giao sớm nhất có thể"
+            }
             on={scheduled}
             onChange={(on) => {
               setScheduled(on);
@@ -306,7 +349,7 @@ export default function CheckoutPage() {
                   </p>
                 ) : (
                   <p className="text-label-md text-on-surface-variant">
-                    Giao lúc <strong className="text-on-surface">{desiredTime}</strong> hôm nay.
+                    {isPickup ? "Lấy" : "Giao"} lúc <strong className="text-on-surface">{desiredTime}</strong> hôm nay.
                   </p>
                 )}
               </>
@@ -338,6 +381,7 @@ export default function CheckoutPage() {
             value={form.payment_method}
             onChange={(v) => set("payment_method", v)}
             payosEnabled={PAYOS_ENABLED}
+            pickup={isPickup}
           />
         </Card>
         </div>
@@ -347,7 +391,7 @@ export default function CheckoutPage() {
           <h2 className="mb-1 text-label-lg text-on-surface">Chi tiết thanh toán</h2>
           <Row label={`Tạm tính (${count} món)`} value={formatVnd(subtotal)} />
           <Row
-            label="Phí giao nội khu"
+            label={isPickup ? "Phí giao (nhận tại quán)" : "Phí giao nội khu"}
             value={settings.loading ? null : shippingFee === 0 ? "Miễn phí" : formatVnd(shippingFee)}
           />
           {discount && (

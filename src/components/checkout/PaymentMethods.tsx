@@ -13,10 +13,13 @@ export default function PaymentMethods({
   value,
   onChange,
   payosEnabled,
+  pickup = false,
 }: {
   value: "cod" | "payos";
   onChange: (v: "cod" | "payos") => void;
   payosEnabled: boolean;
+  /** Nhận tại quán: COD đổi thành "Thanh toán tại quầy". PayOS giữ nguyên. */
+  pickup?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2.5" role="radiogroup" aria-label="Phương thức thanh toán">
@@ -34,8 +37,8 @@ export default function PaymentMethods({
         active={value === "cod"}
         onSelect={() => onChange("cod")}
         icon={<Banknote size={20} strokeWidth={2.2} />}
-        title="Thanh toán khi nhận hàng"
-        subtitle="Trả tiền mặt khi quán giao món tới nơi"
+        title={pickup ? "Thanh toán tại quầy" : "Thanh toán khi nhận hàng"}
+        subtitle={pickup ? "Trả tiền khi đến quán nhận món" : "Trả tiền mặt khi quán giao món tới nơi"}
       />
     </div>
   );

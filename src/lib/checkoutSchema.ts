@@ -36,26 +36,42 @@ const freeText = (max: number) =>
  * Lưu ý: schema phía Edge Function đang lỏng hơn ở số điện thoại
  * (`^0[0-9]{8,10}$`). Nó vẫn chặn rác, chỉ không bắt được đầu số không tồn tại.
  */
-export const checkoutSchema = z.object({
-  customer_name: z
-    .string()
-    .trim()
-    .min(2, "Tên quá ngắn")
-    .max(50, "Tên quá dài")
-    .regex(/^[\p{L}\s'.-]+$/u, "Tên chỉ gồm chữ cái, dấu cách và dấu nối"),
+export const DELIVERY_METHODS = ["delivery", "pickup"] as const;
 
-  customer_phone: z
-    .string()
-    .trim()
-    .regex(VN_PHONE_PATTERN, "Số di động Việt Nam gồm 10 số, ví dụ 0912345678"),
+export const checkoutSchema = z
+  .object({
+    /** Bắt buộc — giao tận nơi hay khách tự đến quán lấy. */
+    delivery_method: z.enum(DELIVERY_METHODS, { message: "Chọn giao tận nơi hoặc nhận tại quán" }),
 
-  building: z.enum(BUILDINGS, { message: "Vui lòng chọn toà" }),
+    customer_name: z
+      .string()
+      .trim()
+      .min(2, "Tên quá ngắn")
+      .max(50, "Tên quá dài")
+      .regex(/^[\p{L}\s'.-]+$/u, "Tên chỉ gồm chữ cái, dấu cách và dấu nối"),
 
-  address_detail: freeText(200),
-  shop_note: freeText(200),
+    customer_phone: z
+      .string()
+      .trim()
+      .regex(VN_PHONE_PATTERN, "Số di động Việt Nam gồm 10 số, ví dụ 0912345678"),
 
-  payment_method: z.enum(["cod", "payos"]),
-});
+    // Chỉ bắt buộc khi giao tận nơi — kiểm ở superRefine bên dưới.
+    // "" (profile cũ chưa chọn toà) coi như chưa chọn, để đơn nhận tại quán không bị báo lỗi oan.
+    building: z.preprocess(
+      (v) => (v === "" ? undefined : v),
+      z.enum(BUILDINGS, { message: "Vui lòng chọn toà" }).optional(),
+    ),
+
+    address_detail: freeText(200),
+    shop_note: freeText(200),
+
+    payment_method: z.enum(["cod", "payos"]),
+  })
+  .superRefine((v, ctx) => {
+    if (v.delivery_method === "delivery" && !v.building) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["building"], message: "Vui lòng chọn toà" });
+    }
+  });
 
 export type CheckoutForm = z.infer<typeof checkoutSchema>;
 
@@ -66,7 +82,8 @@ export type CheckoutForm = z.infer<typeof checkoutSchema>;
  */
 export function composeDeliveryNote(form: CheckoutForm): string | undefined {
   const parts: string[] = [];
-  if (form.address_detail) parts.push(`Địa chỉ: ${form.address_detail}`);
+  // Nhận tại quán thì không có địa chỉ giao — bỏ qua ô chi tiết địa chỉ dù còn chữ cũ.
+  if (form.address_detail && form.delivery_method === "delivery") parts.push(`Địa chỉ: ${form.address_detail}`);
   if (form.shop_note) parts.push(`Ghi chú: ${form.shop_note}`);
   return parts.length > 0 ? parts.join(" | ") : undefined;
 }
