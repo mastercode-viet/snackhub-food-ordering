@@ -512,9 +512,18 @@ export async function updateProduct(id: string, patch: Partial<ProductFormValues
   if (error) throw error;
 }
 
+/** Postgres 23503 = FK vi phạm — combo_items chặn xoá (ON DELETE RESTRICT) khi món còn nằm trong combo. */
 export async function deleteProduct(id: string): Promise<void> {
   const { error } = await supabase.from("products").delete().eq("id", id);
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23503") {
+      const { data } = await supabase.from("combo_items").select("combos(name)").eq("product_id", id);
+      const names = [...new Set((data ?? []).map((r) => r.combos?.name).filter(Boolean))];
+      const where = names.length ? `combo ${names.map((n) => `"${n}"`).join(", ")}` : "một combo";
+      throw new Error(`Món này đang nằm trong ${where} — gỡ món khỏi combo trước khi xoá.`);
+    }
+    throw error;
+  }
 }
 
 /** Bật/tắt "hết hàng tạm thời" — thao tác dùng nhiều nhất trong ngày. */
