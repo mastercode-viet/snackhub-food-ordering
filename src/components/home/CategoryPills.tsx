@@ -108,7 +108,7 @@ export default function CategoryPills({
               whileTap={{ scale: 0.95 }}
               className={`relative flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-label-md transition-colors ${
                 active
-                  ? "bg-inverse-surface text-inverse-on-surface shadow-cta font-semibold"
+                  ? "bg-primary-container text-on-primary-container shadow-badge font-semibold"
                   : "bg-surface-container-lowest text-on-surface-variant border border-outline-variant shadow-card hover:bg-surface-container-low"
               }`}
             >

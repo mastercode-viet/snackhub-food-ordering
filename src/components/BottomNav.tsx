@@ -35,7 +35,7 @@ export default function BottomNav() {
                 end={to === "/"}
                 className={({ isActive }) =>
                   `relative flex min-h-[44px] items-center gap-2 rounded-full px-4 text-label-md transition-all duration-200 ${isActive
-                    ? "bg-inverse-surface text-inverse-on-surface shadow-cta font-semibold"
+                    ? "bg-primary-container text-on-primary-container shadow-badge font-semibold"
                     : "text-on-surface-variant hover:bg-surface-container/70 hover:text-on-surface"
                   }`
                 }
@@ -48,7 +48,8 @@ export default function BottomNav() {
                       <motion.span
                         initial={{ scale: 0.5 }}
                         animate={{ scale: 1 }}
-                        className={`ml-1 grid h-5 min-w-[20px] place-items-center rounded-full px-1.5 text-label-xs font-bold ${isActive ? "bg-primary text-on-primary" : "bg-primary text-on-primary shadow-badge"
+                        // Tab đang chọn nền cam → badge cam sẽ chìm, đảo sang nền trắng chữ cam.
+                        className={`ml-1 grid h-5 min-w-[20px] place-items-center rounded-full px-1.5 text-label-xs font-bold ${isActive ? "bg-surface-container-lowest text-primary" : "bg-primary text-on-primary shadow-badge"
                           }`}
                       >
                         {badge > 99 ? "99+" : badge}
