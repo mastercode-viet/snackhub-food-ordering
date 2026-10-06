@@ -98,17 +98,21 @@ function SidebarContent({
           Quản lý
         </p>
         <SidebarLink to="/admin/don-hang" label="Đơn hàng" badge={pendingOrderCount} />
-        <SidebarLink to="/admin/thuc-don" label="Thực đơn" />
-        <SidebarLink to="/admin/combos" label="Combo" />
-        <SidebarLink to="/admin/khuyen-mai" label="Khuyến mãi" />
-        <SidebarLink to="/admin/thong-ke" label="Thống kê" />
-        <SidebarLink to="/admin/toppings" label="Nhóm topping" />
-        <SidebarLink to="/admin/banner" label="Banner" />
-        {isAdmin && <SidebarLink to="/admin/nhan-su" label="Nhân sự" />}
-        {isAdmin && <SidebarLink to="/admin/ca-lam" label="Ca làm" />}
+        {isAdmin && (
+          <>
+            <SidebarLink to="/admin/thuc-don" label="Thực đơn" />
+            <SidebarLink to="/admin/combos" label="Combo" />
+            <SidebarLink to="/admin/khuyen-mai" label="Khuyến mãi" />
+            <SidebarLink to="/admin/thong-ke" label="Thống kê" />
+            <SidebarLink to="/admin/toppings" label="Nhóm topping" />
+            <SidebarLink to="/admin/banner" label="Banner" />
+            <SidebarLink to="/admin/nhan-su" label="Nhân sự" />
+            <SidebarLink to="/admin/ca-lam" label="Ca làm" />
+          </>
+        )}
         {(isStaff || isAdmin) && <SidebarLink to="/admin/cham-cong" label="Chấm công" />}
         {isStaff && <SidebarLink to="/admin/lich-cua-toi" label="Lịch của tôi" />}
-        <SidebarLink to="/admin/cai-dat" label="Cài đặt quán" />
+        {isAdmin && <SidebarLink to="/admin/cai-dat" label="Cài đặt quán" />}
       </nav>
 
       <div className="mt-auto p-3">

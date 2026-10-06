@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAdminSession } from "@/hooks/useAdminSession";
 import { AdminSidebarContext, type AdminSidebarState } from "@/hooks/useAdminSidebar";
 import { AdminOrderAlertsContext } from "@/hooks/useAdminOrderAlerts";
@@ -10,6 +10,9 @@ import AdminLoginPage from "@/pages/admin/AdminLoginPage";
 import { Skeleton } from "@/components/Skeleton";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
+
+/** Trang nhân viên được vào. Cố ý không có "/admin" trần: đó là trang đích sau đăng nhập, nhân viên bị đưa sang Lịch của tôi. */
+const STAFF_ALLOWED_PATHS = ["/admin/don-hang", "/admin/cham-cong", "/admin/lich-cua-toi"];
 
 /** Cho các trang con đọc lại quyền qua `useOutletContext<AdminOutletContext>()` mà không phải gọi is_admin()/is_staff() lần nữa. */
 export type AdminOutletContext = {
@@ -56,6 +59,13 @@ export default function AdminLayout() {
   }
 
   if (status === "anon") return <AdminLoginPage />;
+
+  // Nhân viên (không phải superadmin) chỉ được vào Đơn hàng, Chấm công, Lịch của tôi.
+  // Vừa đăng nhập (vào /admin trần) hoặc gõ tay URL trang khác → về "Lịch của tôi".
+  // Đây chỉ là lớp giao diện; RLS ở DB mới là lớp chặn thật.
+  if (!isAdmin && !STAFF_ALLOWED_PATHS.some((p) => location.pathname === p || location.pathname === `${p}/`)) {
+    return <Navigate to="/admin/lich-cua-toi" replace />;
+  }
 
   return (
     <AdminSidebarContext.Provider value={sidebar}>
