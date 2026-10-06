@@ -70,3 +70,101 @@ export function composeDeliveryNote(form: CheckoutForm): string | undefined {
   if (form.shop_note) parts.push(`Ghi chú: ${form.shop_note}`);
   return parts.length > 0 ? parts.join(" | ") : undefined;
 }
+
+// ── Giờ muốn nhận ─────────────────────────────────────────────────────────
+//
+// Bộ chọn chỉ có Giờ:Phút → luôn hiểu là HÔM NAY theo giờ máy khách (khách ở
+// VN, cùng múi giờ quán). Bản quyết định là is_valid_desired_delivery_time()
+// ở DB (gọi trong create-order) — ở đây chỉ để báo lỗi sớm, cùng quy tắc:
+// sau thời điểm hiện tại + trong khung giờ mở cửa (hỗ trợ khung vắt qua nửa đêm).
+
+export type StoreHours = { open_time: string; close_time: string };
+
+/** "18:30:00" | "18:30" -> phút trong ngày. */
+const toMinutes = (t: string) => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+
+/** "HH:MM" có nằm trong giờ mở cửa không — cùng logic với is_store_open() ở DB. */
+export function isWithinStoreHours(hhmm: string, hours: StoreHours): boolean {
+  const t = toMinutes(hhmm);
+  const open = toMinutes(hours.open_time);
+  const close = toMinutes(hours.close_time);
+  return open <= close ? t >= open && t < close : t >= open || t < close;
+}
+
+/** "HH:MM" hôm nay -> Date. */
+export function desiredTimeToDate(hhmm: string, now: Date = new Date()): Date {
+  const [h, m] = hhmm.split(":").map(Number);
+  const d = new Date(now);
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+
+/** Mặc định khi bật hẹn giờ: 30 phút nữa, làm tròn lên bội số 5 phút. */
+export function defaultDesiredTime(now: Date = new Date()): string {
+  const d = new Date(now.getTime() + 30 * 60 * 1000);
+  const rounded = Math.ceil(d.getMinutes() / 5) * 5;
+  d.setMinutes(rounded, 0, 0); // 60 phút tự tràn sang giờ kế tiếp
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Schema cho "HH:MM" — phụ thuộc giờ mở cửa và thời điểm hiện tại nên dựng lúc validate. */
+export function desiredDeliverySchema(hours: StoreHours, now: Date = new Date()) {
+  const fmt = (t: string) => t.slice(0, 5);
+  return z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Giờ không hợp lệ")
+    .superRefine((hhmm, ctx) => {
+      if (desiredTimeToDate(hhmm, now).getTime() <= now.getTime()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Giờ muốn nhận phải sau thời điểm hiện tại." });
+        return;
+      }
+      if (!isWithinStoreHours(hhmm, hours)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Ngoài giờ mở cửa (${fmt(hours.open_time)}–${fmt(hours.close_time)}).`,
+        });
+      }
+    });
+}
+
+/**
+ * Các mốc còn hẹn được HÔM NAY: giờ -> danh sách phút (bước `step`), chỉ gồm mốc
+ * sau thời điểm hiện tại và trong giờ mở cửa. Bộ chọn chỉ hiện các mốc này nên
+ * khách không chọn được giờ sai ngay từ đầu.
+ */
+export function selectableSlots(hours: StoreHours, now: Date = new Date(), step = 5): Map<number, number[]> {
+  const slots = new Map<number, number[]>();
+  for (let h = now.getHours(); h < 24; h++) {
+    const minutes: number[] = [];
+    for (let m = 0; m < 60; m += step) {
+      const hhmm = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      if (desiredTimeToDate(hhmm, now).getTime() > now.getTime() && isWithinStoreHours(hhmm, hours)) minutes.push(m);
+    }
+    if (minutes.length > 0) slots.set(h, minutes);
+  }
+  return slots;
+}
+
+/** "HH:MM" có nằm trong `slots` không. */
+export function isSelectableSlot(hhmm: string, slots: Map<number, number[]>): boolean {
+  const [h, m] = hhmm.split(":").map(Number);
+  return slots.get(h)?.includes(m) ?? false;
+}
+
+/** Mốc hợp lệ sớm nhất không trước `hhmm` (hoặc mốc đầu tiên) — dùng để tự chỉnh khi giờ đã chọn vừa trôi qua. */
+export function nextSelectableSlot(hhmm: string, slots: Map<number, number[]>): string | null {
+  const [h, m] = hhmm.split(":").map(Number);
+  const target = h * 60 + m;
+  let first: string | null = null;
+  for (const [sh, mins] of slots) {
+    for (const sm of mins) {
+      const t = `${String(sh).padStart(2, "0")}:${String(sm).padStart(2, "0")}`;
+      first ??= t;
+      if (sh * 60 + sm >= target) return t;
+    }
+  }
+  return first;
+}

@@ -4,6 +4,8 @@ import { useAdminSession } from "@/hooks/useAdminSession";
 import { AdminSidebarContext, type AdminSidebarState } from "@/hooks/useAdminSidebar";
 import { AdminOrderAlertsContext } from "@/hooks/useAdminOrderAlerts";
 import { useOrderNotification } from "@/hooks/useOrderNotification";
+import { useScheduledOrderAlerts } from "@/hooks/useScheduledOrderAlerts";
+import ScheduledOrderAlerts from "@/components/admin/ScheduledOrderAlerts";
 import AdminLoginPage from "@/pages/admin/AdminLoginPage";
 import { Skeleton } from "@/components/Skeleton";
 import AdminSidebar from "@/components/admin/AdminSidebar";
@@ -29,6 +31,8 @@ export default function AdminLayout() {
   const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const orderAlerts = useOrderNotification();
+  // Đơn hẹn giờ sắp tới hạn: chuông + pop-up trên mọi trang /admin/*.
+  const scheduledAlerts = useScheduledOrderAlerts(orderAlerts.playSound);
 
   const sidebar = useMemo<AdminSidebarState>(
     () => ({
@@ -76,6 +80,7 @@ export default function AdminLayout() {
             </main>
           </div>
         </div>
+        <ScheduledOrderAlerts alerts={scheduledAlerts.alerts} onDismiss={scheduledAlerts.dismiss} />
       </AdminOrderAlertsContext.Provider>
     </AdminSidebarContext.Provider>
   );

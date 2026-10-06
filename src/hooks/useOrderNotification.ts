@@ -128,5 +128,5 @@ export function useOrderNotification(): AdminOrderAlertsState {
     };
   }, [playSound, refreshPendingCount]);
 
-  return { soundEnabled, enableSound, disableSound, pendingCount };
+  return { soundEnabled, enableSound, disableSound, pendingCount, playSound };
 }

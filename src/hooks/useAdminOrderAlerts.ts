@@ -7,6 +7,8 @@ export type AdminOrderAlertsState = {
   disableSound: () => void;
   /** Số đơn "chờ xác nhận" hiện tại — hiển thị huy hiệu trên menu Đơn hàng. */
   pendingCount: number;
+  /** Phát chuông (nếu Admin đã bật âm) — dùng lại cho cảnh báo đơn hẹn giờ. */
+  playSound: () => void;
 };
 
 export const AdminOrderAlertsContext = createContext<AdminOrderAlertsState | null>(null);

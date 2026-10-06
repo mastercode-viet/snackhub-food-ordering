@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { closedMessage } from "@/components/home/StoreStatus";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Info, MapPin, NotebookPen, Receipt, Ticket, User } from "lucide-react";
+import { AlarmClock, ArrowLeft, Info, MapPin, NotebookPen, Receipt, Ticket, User } from "lucide-react";
 import Field from "@/components/checkout/Field";
 import Select from "@/components/checkout/Select";
 import PaymentMethods from "@/components/checkout/PaymentMethods";
 import DiscountBox from "@/components/checkout/DiscountBox";
+import TimeWheelPicker from "@/components/checkout/TimeWheelPicker";
+import { Toggle } from "@/components/admin/AdminForm";
 import { Skeleton } from "@/components/Skeleton";
 import { useStoreOpen, useStoreSettings } from "@/hooks/useMenu";
 import { ApiError, createOrder, type DiscountPreview } from "@/lib/api";
@@ -14,6 +16,12 @@ import {
   DELIVERY_POINT_NOTE,
   checkoutSchema,
   composeDeliveryNote,
+  defaultDesiredTime,
+  desiredDeliverySchema,
+  desiredTimeToDate,
+  isSelectableSlot,
+  nextSelectableSlot,
+  selectableSlots,
   type CheckoutForm,
 } from "@/lib/checkoutSchema";
 import { formatVnd } from "@/lib/format";
@@ -44,6 +52,48 @@ export default function CheckoutPage() {
   const [discount, setDiscount] = useState<DiscountPreview | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // Giờ muốn nhận — tắt = giao sớm nhất có thể.
+  const [scheduled, setScheduled] = useState(false);
+  const [desiredTime, setDesiredTime] = useState(() => defaultDesiredTime());
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  const hours = settings.data ? { open_time: settings.data.open_time, close_time: settings.data.close_time } : null;
+
+  // Đồng hồ của trang: tự kiểm tra lại giờ hẹn và trạng thái mở cửa khi khách để trang mở lâu.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    const recheckOpen = setInterval(() => storeOpen.reload(), 60_000);
+    return () => {
+      clearInterval(tick);
+      clearInterval(recheckOpen);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Mốc còn hẹn được hôm nay: sau giờ hiện tại + trong giờ mở cửa (bước 5 phút). */
+  const slots = useMemo(
+    () => (hours ? selectableSlots(hours, new Date(now)) : new Map<number, number[]>()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hours?.open_time, hours?.close_time, now],
+  );
+
+  // Giờ đã chọn vừa trôi qua (hoặc mặc định rơi ngoài giờ mở cửa) → tự chỉnh sang mốc hợp lệ kế tiếp.
+  useEffect(() => {
+    if (!scheduled || slots.size === 0 || isSelectableSlot(desiredTime, slots)) return;
+    const next = nextSelectableSlot(desiredTime, slots);
+    if (!next) return;
+    setDesiredTime(next);
+    setAutoNote(`Đã tự chỉnh sang ${next} vì ${desiredTime} không còn hẹn được.`);
+  }, [scheduled, slots, desiredTime]);
+
+  /** Lỗi giờ hẹn — lớp chặn cuối, cùng quy tắc với server (bộ chọn đã lọc sẵn nên hiếm khi xảy ra). */
+  function desiredTimeError(): string | null {
+    if (!scheduled || !hours) return null;
+    const res = desiredDeliverySchema(hours, new Date()).safeParse(desiredTime);
+    return res.success ? null : res.error.issues[0].message;
+  }
+  const desiredError = desiredTimeError();
 
   /**
    * Đặt xong thì giỏ bị dọn sạch, nhưng lúc đó KHÔNG được coi là "giỏ rỗng"
@@ -82,6 +132,7 @@ export default function CheckoutPage() {
       setErrors(next);
       return;
     }
+    if (desiredTimeError()) return; // lỗi đang hiện ngay dưới bộ chọn giờ
 
     setSubmitting(true);
     try {
@@ -92,6 +143,7 @@ export default function CheckoutPage() {
         delivery_note: composeDeliveryNote(parsed.data),
         payment_method: parsed.data.payment_method,
         discount_code: discount?.code,
+        desired_delivery_time: scheduled ? desiredTimeToDate(desiredTime).toISOString() : undefined,
         items: items.map((i) =>
           i.kind === "combo"
             ? { kind: "combo" as const, combo_id: i.comboId, quantity: i.quantity, item_note: i.note ?? undefined }
@@ -212,6 +264,55 @@ export default function CheckoutPage() {
           />
         </Card>
 
+        <Card icon={<AlarmClock size={18} />} title="Giờ muốn nhận">
+          <Toggle
+            label="Hẹn giờ giao"
+            hint={scheduled ? "Quán giao gần đúng giờ bạn chọn" : "Đang tắt — quán giao sớm nhất có thể"}
+            on={scheduled}
+            onChange={(on) => {
+              setScheduled(on);
+              if (on) {
+                // Mặc định 30 phút nữa; ngoài giờ mở cửa thì lấy mốc hợp lệ gần nhất.
+                const t = defaultDesiredTime();
+                setDesiredTime(isSelectableSlot(t, slots) ? t : (nextSelectableSlot(t, slots) ?? t));
+                setAutoNote(null);
+              }
+              setApiError(null);
+            }}
+          />
+
+          {scheduled &&
+            (slots.size === 0 ? (
+              <p className="rounded-card bg-error-container px-4 py-2.5 text-label-md text-on-error-container">
+                Hôm nay không còn khung giờ nào để hẹn. Tắt hẹn giờ để quán giao sớm nhất nhé.
+              </p>
+            ) : (
+              <>
+                <TimeWheelPicker
+                  value={desiredTime}
+                  slots={slots}
+                  onChange={(t) => {
+                    setDesiredTime(t);
+                    setAutoNote(null);
+                    setApiError(null);
+                  }}
+                />
+                {autoNote && !desiredError && (
+                  <p className="rounded-card bg-tertiary-fixed px-4 py-2.5 text-label-md text-on-tertiary-fixed">{autoNote}</p>
+                )}
+                {desiredError ? (
+                  <p role="alert" className="rounded-card bg-error-container px-4 py-2.5 text-label-md text-on-error-container">
+                    {desiredError}
+                  </p>
+                ) : (
+                  <p className="text-label-md text-on-surface-variant">
+                    Giao lúc <strong className="text-on-surface">{desiredTime}</strong> hôm nay.
+                  </p>
+                )}
+              </>
+            ))}
+        </Card>
+
         <Card icon={<NotebookPen size={18} />} title="Ghi chú cho quán">
           <Field
             label="Ghi chú"
@@ -277,7 +378,7 @@ export default function CheckoutPage() {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting || closed}
+              disabled={submitting || closed || !!desiredError || (scheduled && slots.size === 0)}
               className="flex h-14 w-full items-center justify-between rounded-full bg-primary px-5 text-on-primary shadow-cta-lg transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none disabled:active:scale-100"
             >
               <span className="text-label-lg font-bold">

@@ -327,6 +327,7 @@ export type Database = {
           customer_name: string
           customer_phone: string
           delivery_note: string | null
+          desired_delivery_time: string | null
           discount_amount: number
           discount_code: string | null
           discount_code_id: string | null
@@ -361,6 +362,7 @@ export type Database = {
           customer_name: string
           customer_phone: string
           delivery_note?: string | null
+          desired_delivery_time?: string | null
           discount_amount?: number
           discount_code?: string | null
           discount_code_id?: string | null
@@ -395,6 +397,7 @@ export type Database = {
           customer_name?: string
           customer_phone?: string
           delivery_note?: string | null
+          desired_delivery_time?: string | null
           discount_amount?: number
           discount_code?: string | null
           discount_code_id?: string | null
@@ -650,6 +653,7 @@ export type Database = {
           id: string
           image_url: string | null
           is_available: boolean
+          is_flash_sale: boolean
           is_featured: boolean
           name: string
           search_text: string | null
@@ -667,6 +671,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_available?: boolean
+          is_flash_sale?: boolean
           is_featured?: boolean
           name: string
           search_text?: string | null
@@ -684,6 +689,7 @@ export type Database = {
           id?: string
           image_url?: string | null
           is_available?: boolean
+          is_flash_sale?: boolean
           is_featured?: boolean
           name?: string
           search_text?: string | null
@@ -937,6 +943,9 @@ export type Database = {
           min_order_amount: number
           open_time: string
           payos_hold_minutes: number
+          show_banners: boolean
+          show_flash_sale: boolean
+          show_must_try: boolean
           shipping_fee: number
           store_latitude: number | null
           store_longitude: number | null
@@ -952,6 +961,9 @@ export type Database = {
           min_order_amount?: number
           open_time?: string
           payos_hold_minutes?: number
+          show_banners?: boolean
+          show_flash_sale?: boolean
+          show_must_try?: boolean
           shipping_fee?: number
           store_latitude?: number | null
           store_longitude?: number | null
@@ -967,6 +979,9 @@ export type Database = {
           min_order_amount?: number
           open_time?: string
           payos_hold_minutes?: number
+          show_banners?: boolean
+          show_flash_sale?: boolean
+          show_must_try?: boolean
           shipping_fee?: number
           store_latitude?: number | null
           store_longitude?: number | null
@@ -1207,6 +1222,25 @@ export type Database = {
           shift_name: string
           shift_start: string
           work_date: string
+        }[]
+      }
+      get_customer_retention: {
+        Args: { p_from: string; p_to: string }
+        Returns: {
+          customers: number
+          new_customers: number
+          repeat_customers: number
+          returning_customers: number
+        }[]
+      }
+      get_top_customers: {
+        Args: { p_from: string; p_limit?: number; p_sort?: string; p_to: string }
+        Returns: {
+          completed_orders: number
+          customer_name: string
+          customer_phone: string
+          last_order_at: string
+          total_spent: number
         }[]
       }
       get_staff_attendance_stats: {

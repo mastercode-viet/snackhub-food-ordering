@@ -92,6 +92,8 @@ export type OrderView = {
   room: string | null;
   class_name: string | null;
   delivery_note: string | null;
+  /** "Giờ muốn nhận" khách hẹn lúc đặt — null = giao sớm nhất có thể. */
+  desired_delivery_time: string | null;
   subtotal: number;
   discount_amount: number;
   shipping_fee: number;

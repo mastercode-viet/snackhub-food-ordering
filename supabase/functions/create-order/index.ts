@@ -10,6 +10,21 @@ import { clientKey, fail, isOriginAllowed, json, preflight } from "../_shared/ht
 import { createPaymentLink, newPayosOrderCode } from "../_shared/payos.ts";
 
 /**
+ * Chống spam đơn ảo — hai lớp:
+ *   - Theo IP: nới rộng, vì sinh viên dùng chung WiFi trường thường ra cùng
+ *     một IP — giờ ra chơi nhiều người đặt cùng lúc không được bị chặn oan.
+ *   - Theo SỐ ĐIỆN THOẠI: chặn chính một người tạo hàng loạt đơn (đổi 4G/WiFi
+ *     để đổi IP vẫn không lách được). Hash số trước khi lưu vào rate_limits.
+ */
+const IP_LIMIT = { max: 30, windowSeconds: 60 };
+const PHONE_LIMIT = { max: 3, windowSeconds: 10 * 60 };
+
+async function phoneKey(phone: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`phone:${phone}`));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+}
+
+/**
  * Một dòng order_items sau khi tra giá ở server. Dùng CHUNG hình dạng cho cả
  * dòng sản phẩm lẫn dòng combo (thay vì union) vì cả hai đều insert thẳng
  * vào cùng một bảng — combo chỉ để `product_id = null` và điền
@@ -47,9 +62,9 @@ Deno.serve(async (req) => {
   const db = adminClient();
 
   try {
-    // ── 1. Rate limit: tối đa 5 đơn / 60 giây / IP (chống spam đơn ảo) ──────
+    // ── 1. Rate limit theo IP (lớp rộng, xem IP_LIMIT) ─────────────────────
     const key = await clientKey(req);
-    if (!(await withinRateLimit(db, key, "create_order", 5, 60))) {
+    if (!(await withinRateLimit(db, key, "create_order", IP_LIMIT.max, IP_LIMIT.windowSeconds))) {
       return fail("RATE_LIMITED", "Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.", 429, origin);
     }
 
@@ -64,9 +79,43 @@ Deno.serve(async (req) => {
     }
     const input = parsed.data;
 
+    // Rate limit theo số điện thoại — sau validate để chắc chắn số hợp lệ.
+    if (
+      !(await withinRateLimit(
+        db,
+        await phoneKey(input.customer_phone),
+        "create_order_phone",
+        PHONE_LIMIT.max,
+        PHONE_LIMIT.windowSeconds,
+      ))
+    ) {
+      return fail(
+        "RATE_LIMITED",
+        "Số điện thoại này vừa đặt nhiều đơn liên tiếp. Đợi ít phút rồi đặt tiếp, hoặc nhắn Zalo cho quán nhé.",
+        429,
+        origin,
+      );
+    }
+
     // ── 3. Giờ hoạt động — kiểm tra lại ở server ────────────────────────────
     if (!(await storeIsOpen(db))) {
       return fail("STORE_CLOSED", "Quán chỉ nhận đơn từ 6:00 đến 18:00. Hẹn bạn quay lại nhé!", 409, origin);
+    }
+
+    // Giờ muốn nhận (tuỳ chọn): sau giờ đặt, trong hôm nay, trong giờ mở cửa.
+    if (input.desired_delivery_time) {
+      const { data: validTime, error: timeErr } = await db.rpc("is_valid_desired_delivery_time", {
+        p_at: input.desired_delivery_time,
+      });
+      if (timeErr) throw timeErr;
+      if (validTime !== true) {
+        return fail(
+          "INVALID_DELIVERY_TIME",
+          "Giờ muốn nhận phải sau thời điểm hiện tại và trong giờ mở cửa hôm nay. Chọn lại giờ nhé.",
+          400,
+          origin,
+        );
+      }
     }
 
     // ── 4. Dựng giỏ hàng từ dữ liệu DB ─────────────────────────────────────
@@ -125,6 +174,7 @@ Deno.serve(async (req) => {
         customer_phone: input.customer_phone,
         building: input.building,
         delivery_note: input.delivery_note ?? null,
+        desired_delivery_time: input.desired_delivery_time ?? null,
         subtotal,
         discount_amount: discountAmount,
         shipping_fee: shippingFee,

@@ -63,6 +63,8 @@ export type CreateOrderPayload = {
   delivery_note?: string;
   payment_method: "cod" | "payos";
   discount_code?: string;
+  /** ISO 8601 — "Giờ muốn nhận". Bỏ trống = giao sớm nhất có thể. */
+  desired_delivery_time?: string;
   // Phải khớp CHÍNH XÁC hình dạng của cartItemSchema trong
   // supabase/functions/_shared/schemas.ts — hai bên là bản sao của nhau.
   items: Array<

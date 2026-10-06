@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 import {
+  AlarmClock,
   AlertTriangle,
   Building2,
   ChevronRight,
   Clock,
   Flame,
   Layers,
+  NotebookPen,
   Phone,
   RotateCw,
   Timer,
@@ -25,6 +27,7 @@ import { OrderStatusBadge, STATUS_LABEL } from "@/components/order/OrderStatus";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import { formatDesiredTime, getDesiredDeliverySla, isAwaitingScheduled } from "@/lib/orderSla";
 import {
   cancelOrderAsAdmin,
   fetchAdminOrders,
@@ -41,7 +44,9 @@ const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>>
   delivering: { status: "completed", label: "Hoàn tất đơn" },
 };
 
-const TABS: Array<{ key: OrderStatus | "all" | "sla_overdue"; label: string }> = [
+type TabKey = OrderStatus | "all" | "sla_overdue" | "scheduled";
+
+const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "pending_confirmation", label: "Chờ xác nhận" },
   { key: "preparing", label: "Đang làm" },
   { key: "delivering", label: "Đang giao" },
@@ -49,9 +54,32 @@ const TABS: Array<{ key: OrderStatus | "all" | "sla_overdue"; label: string }> =
   { key: "cancelled", label: "Đã huỷ" },
   { key: "all", label: "Tất cả" },
   { key: "sla_overdue", label: "⚠️ Trễ hạn SLA" },
+  { key: "scheduled", label: "⏰ Hẹn giờ giao" },
 ];
 
+/** Đơn có hẹn giờ và chưa xong — nội dung tab "Hẹn giờ giao". */
+const isOpenScheduled = (o: AdminOrder) =>
+  o.desired_delivery_time !== null && o.status !== "completed" && o.status !== "cancelled";
+
+/** delivery_note được ghép "Địa chỉ: … | Ghi chú: …" (composeDeliveryNote) — tách lại để hiện từng dòng. */
+function splitDeliveryNote(note: string): Array<{ label: string | null; text: string }> {
+  return note.split(" | ").map((part) => {
+    const m = part.match(/^(Địa chỉ|Ghi chú): (.*)$/s);
+    return m ? { label: m[1], text: m[2] } : { label: null, text: part };
+  });
+}
+
+const hasCustomerNote = (o: AdminOrder) => !!o.delivery_note || o.order_items.some((i) => !!i.item_note);
+
 export type SlaLevel = "normal" | "warning" | "critical";
+
+/**
+ * SLA của một đơn. Hai kiểu:
+ *   - Đơn thường: tính theo thời gian chờ từ lúc đặt (15p vàng, 20p đỏ).
+ *   - Đơn hẹn giờ chưa "Đang giao": tính theo giờ khách muốn nhận (còn 15p
+ *     vàng, còn 5p hoặc trễ thì đỏ) — xem lib/orderSla.ts. Không tính theo thời
+ *     gian chờ, nếu không đơn đặt trước 2 tiếng sẽ bị báo trễ oan sau 20 phút.
+ */
 
 export function getOrderSla(
   order: AdminOrder,
@@ -60,11 +88,18 @@ export function getOrderSla(
   elapsedMinutes: number;
   level: SlaLevel;
   label: string;
+  /** Có giá trị khi SLA đang tính theo giờ hẹn (đơn hẹn giờ chưa giao). */
+  minutesLeft?: number;
 } {
   const isFinished = order.status === "completed" || order.status === "cancelled";
   const createdMs = new Date(order.created_at).getTime();
   const elapsedMs = Math.max(0, now - createdMs);
   const elapsedMinutes = Math.floor(elapsedMs / (60 * 1000));
+
+  if (isAwaitingScheduled(order)) {
+    const d = getDesiredDeliverySla(order.desired_delivery_time!, now);
+    return { elapsedMinutes, level: d.level, label: d.label, minutesLeft: d.minutesLeft };
+  }
 
   if (isFinished) {
     return {
@@ -104,8 +139,25 @@ export default function AdminOrdersPage() {
   const { isAdmin } = useOutletContext<AdminOutletContext>();
   const state = useAsync(() => fetchAdminOrders(), []);
   const { soundEnabled, enableSound, disableSound } = useAdminOrderAlerts();
-  const [tab, setTab] = useState<OrderStatus | "all" | "sla_overdue">("pending_confirmation");
+  const [tab, setTab] = useState<TabKey>("pending_confirmation");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Mở thẳng một đơn từ pop-up cảnh báo giờ hẹn: /admin/don-hang?don=<id>.
+  const [params, setParams] = useSearchParams();
+  const focusId = params.get("don");
+  useEffect(() => {
+    if (!focusId) return;
+    setTab("all");
+    setSelectedId(focusId);
+    setParams(
+      (p) => {
+        const next = new URLSearchParams(p);
+        next.delete("don");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [focusId, setParams]);
   const [now, setNow] = useState<number>(() => Date.now());
   // Lọc + gom nhóm theo toà nhà: chỉ Superadmin có nhu cầu điều phối giao
   // hàng theo khu vực toàn quán; staff xử lý đơn theo hàng đợi thông thường.
@@ -165,7 +217,9 @@ export default function AdminOrdersPage() {
   // Lọc và Sắp xếp ưu tiên: Đơn trễ hạn (Critical -> Warning) tự động đẩy lên đầu danh sách!
   const visible = useMemo(() => {
     let filtered = orders;
-    if (tab === "sla_overdue") {
+    if (tab === "scheduled") {
+      filtered = orders.filter(isOpenScheduled);
+    } else if (tab === "sla_overdue") {
       filtered = orders.filter((o) => {
         if (o.status === "completed" || o.status === "cancelled") return false;
         const sla = getOrderSla(o, now);
@@ -196,6 +250,14 @@ export default function AdminOrdersPage() {
 
       if (aFinished !== bFinished) {
         return aFinished ? 1 : -1; // Đơn đang xử lý luôn lên trước
+      }
+
+      // Ghim đơn hẹn giờ (chưa giao) lên đầu, giờ hẹn sớm nhất xếp trước.
+      const aPinned = isAwaitingScheduled(a);
+      const bPinned = isAwaitingScheduled(b);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      if (aPinned && bPinned) {
+        return new Date(a.desired_delivery_time!).getTime() - new Date(b.desired_delivery_time!).getTime();
       }
 
       const aSla = getOrderSla(a, now);
@@ -330,6 +392,7 @@ export default function AdminOrdersPage() {
           let count = 0;
           if (t.key === "all") count = orders.length;
           else if (t.key === "sla_overdue") count = criticalCount + warningCount;
+          else if (t.key === "scheduled") count = orders.filter(isOpenScheduled).length;
           else count = counts.get(t.key) ?? 0;
 
           const isSlaTab = t.key === "sla_overdue";
@@ -421,14 +484,18 @@ export default function AdminOrdersPage() {
                     ? "Không tìm thấy đơn nào khớp"
                     : tab === "sla_overdue"
                       ? "Tuyệt vời! Không có đơn nào trễ hạn"
-                      : "Không có đơn nào ở mục này"
+                      : tab === "scheduled"
+                        ? "Chưa có đơn hẹn giờ nào"
+                        : "Không có đơn nào ở mục này"
                 }
                 description={
                   debouncedSearch.trim()
                     ? "Thử tìm với mã đơn, tên khách hoặc số điện thoại khác."
                     : tab === "sla_overdue"
                       ? "Mọi đơn hàng đều được xử lý và giao đúng hạn mức thời gian."
-                      : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
+                      : tab === "scheduled"
+                        ? "Đơn khách chọn \"Giờ muốn nhận\" sẽ hiện ở đây, giờ giao sớm nhất xếp trên."
+                        : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
                 }
               />
             ) : groupedByBuilding ? (
@@ -532,9 +599,28 @@ function OrderPanel({
           <p className="text-label-sm text-on-surface-variant">
             Đặt lúc: {formatTime(order.created_at)}
           </p>
+
         </div>
         <OrderStatusBadge status={order.status} />
       </div>
+
+      {/* Giờ giao khách hẹn — to, rõ để nhân viên thấy ngay khi mở đơn. */}
+      {order.desired_delivery_time && (
+        <div className="flex items-center gap-3 rounded-card border-2 border-inverse-surface bg-surface-container-lowest p-3">
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-inverse-surface text-inverse-on-surface">
+            <AlarmClock size={22} strokeWidth={2.4} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-label-sm uppercase text-on-surface-variant">Khách hẹn giao lúc</p>
+            <p className="text-headline-lg text-on-surface">{formatDesiredTime(order.desired_delivery_time)}</p>
+            {!isFinished && (
+              <p className="text-label-md text-on-surface-variant">
+                {getDesiredDeliverySla(order.desired_delivery_time, now).label}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Cảnh báo SLA chi tiết khi đơn bị chậm hoặc trễ */}
       {!isFinished && sla.level !== "normal" && (
@@ -554,9 +640,13 @@ function OrderPanel({
           />
           <div>
             <p className="font-bold">
-              {sla.level === "critical"
-                ? `⚠️ Đơn đã trôi qua ${sla.elapsedMinutes} phút (Vượt ngưỡng SLA 20p)!`
-                : `⏳ Đơn đã trôi qua ${sla.elapsedMinutes} phút (Ngưỡng cảnh báo 15p).`}
+              {sla.minutesLeft !== undefined
+                ? sla.minutesLeft > 0
+                  ? `⏰ Còn ${sla.minutesLeft} phút tới giờ khách hẹn nhận (${formatDesiredTime(order.desired_delivery_time!)}).`
+                  : `⚠️ Đã trễ ${-sla.minutesLeft} phút so với giờ khách hẹn (${formatDesiredTime(order.desired_delivery_time!)})!`
+                : sla.level === "critical"
+                  ? `⚠️ Đơn đã trôi qua ${sla.elapsedMinutes} phút (Vượt ngưỡng SLA 20p)!`
+                  : `⏳ Đơn đã trôi qua ${sla.elapsedMinutes} phút (Ngưỡng cảnh báo 15p).`}
             </p>
             <p className="mt-0.5 text-label-xs opacity-90">
               Vui lòng ưu tiên làm đồ và giao ngay cho khách để tránh đánh giá tiêu cực.
@@ -580,12 +670,23 @@ function OrderPanel({
           {order.room ? ` · Phòng ${order.room}` : ""}
           {order.class_name ? ` · Lớp ${order.class_name}` : ""}
         </p>
-        {order.delivery_note && (
-          <p className="mt-1.5 rounded-card-sm bg-surface-container px-2.5 py-1.5 text-body-sm italic text-on-surface">
-            “{order.delivery_note}”
-          </p>
-        )}
       </div>
+
+      {/* Lưu ý của khách — làm nổi để nhân viên không bỏ sót khi làm/giao. */}
+      {order.delivery_note && (
+        <div className="flex items-start gap-2.5 rounded-card bg-tertiary-fixed p-3 text-on-tertiary-fixed">
+          <NotebookPen size={18} strokeWidth={2.4} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-label-sm uppercase">Lưu ý của khách</p>
+            {splitDeliveryNote(order.delivery_note).map((n, i) => (
+              <p key={i} className="mt-1 break-words text-body-md font-semibold">
+                {n.label && <span className="font-normal">{n.label}: </span>}
+                {n.text}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ul className="flex flex-col divide-y divide-outline-variant">
         {order.order_items.map((item) => {
@@ -605,7 +706,10 @@ function OrderPanel({
                   </p>
                 )}
                 {item.item_note && (
-                  <p className="text-body-sm italic text-on-surface-variant">“{item.item_note}”</p>
+                  <p className="mt-1 inline-flex max-w-full items-start gap-1 rounded-card-sm bg-tertiary-fixed px-2 py-1 text-body-sm font-semibold text-on-tertiary-fixed">
+                    <NotebookPen size={13} strokeWidth={2.4} className="mt-0.5 shrink-0" />
+                    <span className="break-words">{item.item_note}</span>
+                  </p>
                 )}
               </div>
               <span className="shrink-0 text-label-md font-bold text-on-surface">
@@ -884,6 +988,20 @@ function OrderRow({
           </span>
         ) : (
           <span className="text-label-xs text-on-surface-variant">{formatTime(order.created_at)}</span>
+        )}
+
+        {order.desired_delivery_time && !isFinished && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-inverse-surface px-2.5 py-0.5 text-label-xs font-bold text-inverse-on-surface">
+            <AlarmClock size={12} strokeWidth={2.4} />
+            Giao {formatDesiredTime(order.desired_delivery_time)}
+          </span>
+        )}
+
+        {hasCustomerNote(order) && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-tertiary-fixed px-2.5 py-0.5 text-label-xs font-bold text-on-tertiary-fixed">
+            <NotebookPen size={12} strokeWidth={2.4} />
+            Có lưu ý
+          </span>
         )}
 
         <span className="min-w-0 flex-1 truncate text-body-sm text-on-surface-variant">

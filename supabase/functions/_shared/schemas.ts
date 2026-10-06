@@ -60,6 +60,9 @@ export const createOrderSchema = z.object({
   delivery_note: z.string().trim().max(500).optional(),
   payment_method: z.enum(["cod", "payos"]),
   discount_code: z.string().trim().max(50).optional(),
+  // "Giờ muốn nhận" (ISO 8601 có múi giờ). Chỉ kiểm định dạng ở đây — sau giờ
+  // đặt / cùng ngày / trong giờ mở cửa do is_valid_desired_delivery_time() ở DB quyết định.
+  desired_delivery_time: z.string().datetime({ offset: true }).optional(),
   items: z.array(cartItemSchema).min(1).max(50),
 });
 

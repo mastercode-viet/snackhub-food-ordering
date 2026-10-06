@@ -96,11 +96,11 @@ export default function BannerRail() {
     >
       <div className="group relative w-full overflow-hidden rounded-card-lg bg-surface-container shadow-card">
         {bannerCount === 1 ? (
-          <div className="relative h-44 w-full sm:h-48 md:h-56">
+          <div className="relative h-44 w-full sm:h-48 md:h-72 lg:h-80">
             <BannerItem banner={banners[0]} />
           </div>
         ) : (
-          <div className="relative h-44 w-full overflow-hidden sm:h-48 md:h-56">
+          <div className="relative h-44 w-full overflow-hidden sm:h-48 md:h-72 lg:h-80">
             <AnimatePresence initial={false} custom={direction} mode="popLayout">
               <motion.div
                 key={page}

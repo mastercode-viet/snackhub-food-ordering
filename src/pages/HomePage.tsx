@@ -38,10 +38,11 @@ export default function HomePage() {
     const available = (allProducts.data ?? []).filter((p) => p.is_available);
 
     return {
-      // Flash Sale: món đang giảm giá, giảm sâu xếp trước. Quy đổi cả giảm
-      // theo % lẫn giảm theo tiền về cùng tỷ lệ % hiệu dụng để so công bằng.
+      // Flash Sale: món Admin chọn (cờ is_flash_sale, chọn ở Cài đặt quán), giảm
+      // sâu xếp trước. Quy đổi cả giảm theo % lẫn giảm theo tiền về cùng tỷ lệ %
+      // hiệu dụng để so công bằng.
       flashSale: available
-        .filter((p) => p.discount_value > 0)
+        .filter((p) => p.is_flash_sale)
         .sort(
           (a, b) =>
             effectiveDiscountRatio(b.base_price, b.discount_type, b.discount_value) -
@@ -138,8 +139,9 @@ export default function HomePage() {
       {storeOpen.data === false && <StoreClosedBanner settings={settings.data} />}
 
       {/* Banner khuyến mãi do Admin quản lý — nằm ngay TRÊN mục combo.
-          Tự ẩn nếu chưa có banner nào đang bật. */}
-      <BannerRail />
+          Tự ẩn nếu chưa có banner nào đang bật, hoặc Admin tắt cả mục ở Cài đặt quán.
+          Các mục bật/tắt chỉ hiện sau khi tải xong settings, tránh hiện rồi biến mất. */}
+      {settings.data?.show_banners && <BannerRail />}
 
       <ComboRail />
 
@@ -172,46 +174,50 @@ export default function HomePage() {
         />
       </section>
 
-      <ProductRail
-        title={
-          // Giữ "FLASH" tô cam để giữ chút khẩn cấp; "SALE" ăn theo màu mực
-          // mặc định của <h2> dùng chung, không cần tự set màu riêng nữa.
-          <>
-            <h2 className="ml-2.5 text-2xl font-extrabold uppercase tracking-tight text-neutral-900">
-              <span className="text-red-600">FLASH</span> SALE
-            </h2>
-          </>
-        }
+      {settings.data?.show_flash_sale && (
+        <ProductRail
+          title={
+            // Giữ "FLASH" tô cam để giữ chút khẩn cấp; "SALE" ăn theo màu mực
+            // mặc định của <h2> dùng chung, không cần tự set màu riêng nữa.
+            <>
+              <h2 className="ml-2.5 text-2xl font-extrabold uppercase tracking-tight text-neutral-900">
+                <span className="text-red-600">FLASH</span> SALE
+              </h2>
+            </>
+          }
 
-        products={rails.flashSale}
-        loading={allProducts.loading}
-        error={allProducts.error}
-        onRetry={allProducts.reload}
-        href="/thuc-don"
-        emptyText="Hiện chưa có món nào đang giảm giá."
-        /* Chưa có cột thời gian khuyến mãi trong `products` nên truyền null:
-           CountdownTimer sẽ tự ẩn thay vì đếm ngược tới một mốc bịa ra. */
-        headerRight={<CountdownTimer endsAt={null} />}
-      />
+          products={rails.flashSale}
+          loading={allProducts.loading}
+          error={allProducts.error}
+          onRetry={allProducts.reload}
+          href="/thuc-don"
+          emptyText="Quán chưa chọn món nào cho Flash Sale."
+          /* Chưa có cột thời gian khuyến mãi trong `products` nên truyền null:
+             CountdownTimer sẽ tự ẩn thay vì đếm ngược tới một mốc bịa ra. */
+          headerRight={<CountdownTimer endsAt={null} />}
+        />
+      )}
 
-      <ProductRail
-        title={
-          <>
-            <h2 className=" ml-2.5 text-2xl font-extrabold tracking-tight text-neutral-900">
-              <span className="text-orange-600">Must</span> Try
-            </h2>
-          </>
-        }
+      {settings.data?.show_must_try && (
+        <ProductRail
+          title={
+            <>
+              <h2 className=" ml-2.5 text-2xl font-extrabold tracking-tight text-neutral-900">
+                <span className="text-orange-600">Must</span> Try
+              </h2>
+            </>
+          }
 
-        tone="banner-info"
-        subtitle="Giảm tới 50%"
-        products={rails.mustTry}
-        loading={allProducts.loading}
-        error={allProducts.error}
-        onRetry={allProducts.reload}
-        href="/thuc-don"
-        emptyText="Quán chưa chọn món nổi bật nào."
-      />
+          tone="banner-info"
+          subtitle="Giảm tới 50%"
+          products={rails.mustTry}
+          loading={allProducts.loading}
+          error={allProducts.error}
+          onRetry={allProducts.reload}
+          href="/thuc-don"
+          emptyText="Quán chưa chọn món nổi bật nào."
+        />
+      )}
 
       <ProductRail
         title={

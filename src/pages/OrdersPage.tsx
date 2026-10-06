@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "motion/react";
 import {
+  AlarmClock,
   ArrowRight,
   CalendarDays,
   Check,
@@ -22,6 +23,7 @@ import { useOrderDateRangeParam } from "@/hooks/useOrderDateRangeParam";
 import { copyText } from "@/lib/clipboard";
 import { formatClock, formatDate, formatVnd, toIsoDate } from "@/lib/format";
 import { isWithinOrderDateRange } from "@/lib/queries";
+import { formatDesiredTime } from "@/lib/orderSla";
 import { useRecentOrders } from "@/store/recentOrders";
 import { toast } from "@/store/toast";
 
@@ -288,6 +290,14 @@ export default function OrdersPage() {
                     {formatClock(when)}
                   </Stat>
                 </div>
+
+                {order?.desired_delivery_time && (
+                  <p className="mt-2 flex items-center gap-2 rounded-card bg-inverse-surface px-3 py-2 text-inverse-on-surface">
+                    <AlarmClock size={16} strokeWidth={2.4} className="shrink-0" />
+                    <span className="text-label-md">Hẹn giao lúc</span>
+                    <span className="text-headline-sm">{formatDesiredTime(order.desired_delivery_time)}</span>
+                  </p>
+                )}
 
                 {loading ? (
                   <Skeleton className="mt-3 h-4 w-3/4" />

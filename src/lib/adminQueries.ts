@@ -137,6 +137,7 @@ export type AdminOrder = Pick<
   | "room"
   | "class_name"
   | "delivery_note"
+  | "desired_delivery_time"
   | "subtotal"
   | "discount_amount"
   | "discount_code"
@@ -166,7 +167,7 @@ export type AdminOrder = Pick<
 // found" vì không biết embed theo cột nào.
 const ORDER_COLUMNS =
   "id, order_code, status, payment_method, payment_status, customer_name, customer_phone, " +
-  "building, floor, room, class_name, delivery_note, subtotal, discount_amount, discount_code, " +
+  "building, floor, room, class_name, delivery_note, desired_delivery_time, subtotal, discount_amount, discount_code, " +
   "shipping_fee, total_amount, cancel_reason, cancelled_at, completed_at, created_at, " +
   "collected_by_staff_id, collected_by_staff:staff_profiles!orders_collected_by_staff_id_fkey(id, full_name), " +
   "assigned_staff_id, assigned_staff:staff_profiles!orders_assigned_staff_id_fkey(id, full_name), " +
@@ -182,6 +183,24 @@ export async function fetchAdminOrders(limit = 100): Promise<AdminOrder[]> {
 
   if (error) throw error;
   return data as unknown as AdminOrder[];
+}
+
+export type ScheduledOrder = Pick<
+  Tables<"orders">,
+  "id" | "order_code" | "customer_name" | "building" | "status" | "desired_delivery_time" | "payment_method" | "payment_status"
+>;
+
+/** Đơn hẹn giờ còn chờ xử lý (chưa "Đang giao") — nguồn cho chuông + pop-up cảnh báo giờ hẹn. */
+export async function fetchAwaitingScheduledOrders(): Promise<ScheduledOrder[]> {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id, order_code, customer_name, building, status, desired_delivery_time, payment_method, payment_status")
+    .not("desired_delivery_time", "is", null)
+    .in("status", ["pending_confirmation", "preparing"])
+    .order("desired_delivery_time")
+    .limit(100);
+  if (error) throw error;
+  return data;
 }
 
 /** Đếm nhanh đơn "chờ xác nhận" — dùng cho huy hiệu (badge) trên menu Đơn hàng, không kéo cả danh sách. */
@@ -332,6 +351,44 @@ export async function fetchTopProducts(from: string, to: string, limit = 8): Pro
   }
 
   return [...byName.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
+}
+
+// ── Thống kê khách (nhận diện theo số điện thoại, chỉ đơn hoàn tất) ────────
+
+export type TopCustomer = {
+  customer_phone: string;
+  customer_name: string;
+  completed_orders: number;
+  total_spent: number;
+  last_order_at: string;
+};
+
+export type CustomerSort = "orders" | "spent";
+
+export async function fetchTopCustomers(from: string, to: string, sort: CustomerSort, limit = 20): Promise<TopCustomer[]> {
+  const { data, error } = await supabase.rpc("get_top_customers", { p_from: from, p_to: to, p_sort: sort, p_limit: limit });
+  if (error) throw error;
+  // numeric về dạng string qua PostgREST — ép lại cho chắc.
+  return (data ?? []).map((r) => ({ ...r, completed_orders: Number(r.completed_orders), total_spent: Number(r.total_spent) }));
+}
+
+export type CustomerRetention = {
+  customers: number;
+  repeat_customers: number;
+  new_customers: number;
+  returning_customers: number;
+};
+
+export async function fetchCustomerRetention(from: string, to: string): Promise<CustomerRetention> {
+  const { data, error } = await supabase.rpc("get_customer_retention", { p_from: from, p_to: to });
+  if (error) throw error;
+  const r = data?.[0];
+  return {
+    customers: Number(r?.customers ?? 0),
+    repeat_customers: Number(r?.repeat_customers ?? 0),
+    new_customers: Number(r?.new_customers ?? 0),
+    returning_customers: Number(r?.returning_customers ?? 0),
+  };
 }
 
 /** Combo bán chạy — cùng khuôn view day-grain như admin_top_products. */
@@ -526,6 +583,17 @@ export async function deleteProduct(id: string): Promise<void> {
   }
 }
 
+/** Thêm/bỏ món khỏi mục trang chủ: Flash Sale (is_flash_sale) hoặc Must Try (is_featured). */
+export async function setProductHomeFlag(
+  id: string,
+  flag: "is_flash_sale" | "is_featured",
+  on: boolean,
+): Promise<void> {
+  const patch = flag === "is_flash_sale" ? { is_flash_sale: on } : { is_featured: on };
+  const { error } = await supabase.from("products").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
 /** Bật/tắt "hết hàng tạm thời" — thao tác dùng nhiều nhất trong ngày. */
 export async function setProductAvailability(id: string, isAvailable: boolean): Promise<void> {
   const { error } = await supabase.from("products").update({ is_available: isAvailable }).eq("id", id);
@@ -584,6 +652,9 @@ export async function updateSettings(
       | "store_latitude"
       | "store_longitude"
       | "checkin_radius_m"
+      | "show_banners"
+      | "show_flash_sale"
+      | "show_must_try"
     >
   >,
 ): Promise<void> {

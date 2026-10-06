@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { motion } from "motion/react";
 import {
+  AlarmClock,
   ArrowLeft,
   Ban,
   CalendarDays,
@@ -28,6 +29,7 @@ import {
 import { buildReorder } from "@/lib/reorder";
 import { copyText } from "@/lib/clipboard";
 import { formatClock, formatDate, formatVnd } from "@/lib/format";
+import { formatDesiredTime } from "@/lib/orderSla";
 import { supabase } from "@/lib/supabase";
 import { useCartStore } from "@/store/cart";
 import { useRecentOrders } from "@/store/recentOrders";
@@ -261,12 +263,29 @@ export default function OrderTrackingPage() {
                 <Stat icon={<Clock size={13} strokeWidth={2.4} />} label="Giờ đặt">
                   {formatClock(order.created_at)}
                 </Stat>
+
               </div>
             </div>
             <OrderStatusBadge status={order.status} />
           </div>
 
         </section>
+
+        {/* Giờ khách hẹn nhận — khối riêng, chữ to, để khách thấy ngay quán đã ghi nhận giờ. */}
+        {order.desired_delivery_time && (
+          <section className="flex items-center gap-4 rounded-card-lg bg-inverse-surface p-5 text-inverse-on-surface shadow-card">
+            <span className="grid size-12 shrink-0 place-items-center rounded-full bg-inverse-on-surface/15">
+              <AlarmClock size={24} strokeWidth={2.4} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-label-sm uppercase">
+                {order.status === "completed" ? "Bạn đã hẹn nhận lúc" : order.status === "cancelled" ? "Giờ đã hẹn" : "Quán sẽ giao lúc"}
+              </p>
+              <p className="text-headline-lg">{formatDesiredTime(order.desired_delivery_time)}</p>
+              <p className="text-body-sm opacity-90">{formatDate(order.desired_delivery_time)}</p>
+            </div>
+          </section>
+        )}
 
         {waitingPayment && (
           <motion.div whileTap={{ scale: 0.98 }}>

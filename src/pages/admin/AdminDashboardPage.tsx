@@ -18,6 +18,9 @@ import { formatVnd } from "@/lib/format";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import { useOutletContext } from "react-router-dom";
+import type { AdminOutletContext } from "@/routes/AdminLayout";
+import CustomerStatsCard from "@/components/admin/CustomerStatsCard";
 import {
   bucketDailyStats,
   fetchDailyStats,
@@ -59,6 +62,7 @@ function firstOfThisMonth(): string {
 }
 
 export default function AdminDashboardPage() {
+  const { isAdmin } = useOutletContext<AdminOutletContext>();
   // Mặc định 14 ngày gần nhất — giữ đúng hành vi trước khi có Date Range Picker.
   const [fromDate, setFromDate] = useState<string>(() => {
     const d = new Date();
@@ -171,6 +175,9 @@ export default function AdminDashboardPage() {
             <PaymentSplitDonut cod={totals.codRevenue} payos={totals.payosRevenue} />
             <BestSellersCard products={state.data!.top} combos={state.data!.combos} />
           </div>
+
+          {/* Thống kê khách chỉ superadmin xem được (RPC tự chặn) — staff không thấy thẻ này. */}
+          {isAdmin && <CustomerStatsCard from={rangeFrom} to={rangeTo} />}
 
           <HeatmapCard cells={state.data!.heatmap} />
         </>
