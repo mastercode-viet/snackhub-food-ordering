@@ -8,6 +8,7 @@ import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
 import { fetchSettings, updateSettings, type StoreSettings } from "@/lib/adminQueries";
 import HomeSectionsPanel from "@/components/admin/HomeSectionsPanel";
+import PaymentMethodsPanel from "@/components/admin/PaymentMethodsPanel";
 
 /** "06:00:00" -> "06:00" cho <input type="time">. */
 function toTimeInput(t: string): string {
@@ -63,6 +64,7 @@ export default function AdminSettingsPage() {
       ) : (
         <>
           <SettingsForm settings={state.data!} onSaved={state.reload} />
+          <PaymentMethodsPanel settings={state.data!} onSaved={state.reload} />
           <HomeSectionsPanel settings={state.data!} onSaved={state.reload} />
         </>
       )}
