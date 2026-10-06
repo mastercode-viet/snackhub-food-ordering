@@ -14,6 +14,7 @@ import { ApiError, createOrder, type DiscountPreview } from "@/lib/api";
 import {
   BUILDINGS,
   DELIVERY_POINT_NOTE,
+  allowedPaymentMethods,
   checkoutSchema,
   composeDeliveryNote,
   defaultDesiredTime,
@@ -21,6 +22,7 @@ import {
   desiredTimeToDate,
   isSelectableSlot,
   nextSelectableSlot,
+  paymentNotAllowedMessage,
   selectableSlots,
   type CheckoutForm,
 } from "@/lib/checkoutSchema";
@@ -55,6 +57,20 @@ export default function CheckoutPage() {
   useEffect(() => {
     setForm((prev) => ({ ...prev, delivery_method: inStoreMode ? "in_store" : "delivery" }));
   }, [inStoreMode]);
+
+  // Phương thức quán đang bật cho hình thức đặt này (superadmin bật/tắt ở /admin/cai-dat).
+  const allowedBySettings = settings.data ? allowedPaymentMethods(settings.data, form.delivery_method) : null;
+  const canPayos = !!allowedBySettings?.payos && PAYOS_ENABLED;
+  const canCod = !!allowedBySettings?.cod;
+  // Phương thức đang chọn bị tắt (đổi hình thức đặt, hoặc quán vừa tắt) → tự chuyển sang phương thức còn bật.
+  useEffect(() => {
+    if (!settings.data) return;
+    setForm((prev) => {
+      if (prev.payment_method === "payos" ? canPayos : canCod) return prev;
+      const next = canPayos ? "payos" : canCod ? "cod" : null;
+      return next ? { ...prev, payment_method: next } : prev;
+    });
+  }, [settings.data, canPayos, canCod]);
   const [errors, setErrors] = useState<Partial<Record<keyof CheckoutForm, string>>>({});
   const [discount, setDiscount] = useState<DiscountPreview | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -142,6 +158,10 @@ export default function CheckoutPage() {
       return;
     }
     if (desiredTimeError()) return; // lỗi đang hiện ngay dưới bộ chọn giờ
+    if (!(parsed.data.payment_method === "payos" ? canPayos : canCod)) {
+      setErrors({ payment_method: paymentNotAllowedMessage(parsed.data.delivery_method, parsed.data.payment_method) });
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -206,6 +226,8 @@ export default function CheckoutPage() {
       );
       // Mã giảm giá có thể vừa hết lượt giữa chừng — buộc khách áp lại.
       if (e instanceof ApiError && e.code === "DISCOUNT_INVALID") setDiscount(null);
+      // Quán vừa tắt phương thức này trong lúc khách đang đặt — tải lại để giao diện hiện đúng lựa chọn còn bật.
+      if (e instanceof ApiError && e.code === "PAYMENT_METHOD_NOT_ALLOWED") settings.reload();
     } finally {
       setSubmitting(false);
     }
@@ -366,12 +388,30 @@ export default function CheckoutPage() {
         </Card>
 
         <Card icon={<Receipt size={18} />} title="Phương thức thanh toán">
-          <PaymentMethods
-            value={form.payment_method}
-            onChange={(v) => set("payment_method", v)}
-            payosEnabled={PAYOS_ENABLED}
-            inStore={inStore}
-          />
+          {allowedBySettings ? (
+            <PaymentMethods
+              value={form.payment_method}
+              onChange={(v) => set("payment_method", v)}
+              allowed={allowedBySettings}
+              payosEnabled={PAYOS_ENABLED}
+              inStore={inStore}
+            />
+          ) : settings.error ? (
+            <button
+              type="button"
+              onClick={settings.reload}
+              className="min-h-[44px] rounded-card bg-error-container px-4 text-label-md text-on-error-container"
+            >
+              Không tải được phương thức thanh toán — bấm để thử lại
+            </button>
+          ) : (
+            <Skeleton className="h-16 w-full rounded-2xl" />
+          )}
+          {errors.payment_method && (
+            <p role="alert" className="rounded-card bg-error-container px-4 py-2.5 text-label-md text-on-error-container">
+              {errors.payment_method}
+            </p>
+          )}
         </Card>
         </div>
 
@@ -411,7 +451,14 @@ export default function CheckoutPage() {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting || closed || !!desiredError || (scheduled && !inStore && slots.size === 0)}
+              disabled={
+                submitting ||
+                closed ||
+                !!desiredError ||
+                (scheduled && !inStore && slots.size === 0) ||
+                !allowedBySettings ||
+                (!canPayos && !canCod)
+              }
               className="flex h-14 w-full items-center justify-between rounded-full bg-primary px-5 text-on-primary shadow-cta-lg transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none disabled:active:scale-100"
             >
               <span className="text-label-lg font-bold">

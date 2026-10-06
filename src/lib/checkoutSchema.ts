@@ -39,6 +39,36 @@ const freeText = (max: number) =>
 /** "in_store" = khách tự đặt tại quầy qua mã QR (?mode=in_store). */
 export const DELIVERY_METHODS = ["delivery", "in_store"] as const;
 
+export type DeliveryMethod = (typeof DELIVERY_METHODS)[number];
+export type PaymentMethod = "payos" | "cod";
+
+/**
+ * Phương thức thanh toán quán đang bật cho từng hình thức đặt — 4 cột trong
+ * store_settings, superadmin bật/tắt ở /admin/cai-dat (mặc định: giao tận nơi
+ * chỉ PayOS, tại quầy PayOS + tiền mặt). Bản quyết định là create-order.
+ * PHẢI khớp với allowedPaymentMethods / paymentNotAllowedMessage trong
+ * supabase/functions/_shared/schemas.ts.
+ */
+export type PaymentSettings = {
+  delivery_payos_enabled: boolean;
+  delivery_cod_enabled: boolean;
+  in_store_payos_enabled: boolean;
+  in_store_cod_enabled: boolean;
+};
+
+export function allowedPaymentMethods(s: PaymentSettings, delivery: DeliveryMethod): Record<PaymentMethod, boolean> {
+  return delivery === "delivery"
+    ? { payos: s.delivery_payos_enabled, cod: s.delivery_cod_enabled }
+    : { payos: s.in_store_payos_enabled, cod: s.in_store_cod_enabled };
+}
+
+export function paymentNotAllowedMessage(delivery: DeliveryMethod, method: PaymentMethod): string {
+  const methodLabel =
+    method === "payos" ? "thanh toán online (VietQR)" : delivery === "delivery" ? "thanh toán khi nhận hàng" : "thanh toán tiền mặt";
+  const typeLabel = delivery === "delivery" ? "đơn giao tận nơi" : "đơn tại quầy";
+  return `Quán đang tạm tắt ${methodLabel} cho ${typeLabel}. Vui lòng chọn phương thức khác.`;
+}
+
 export const checkoutSchema = z
   .object({
     /** Bắt buộc — giao tận nơi hay đặt tại quầy (lấy từ chế độ của phiên, không phải khách chọn). */
