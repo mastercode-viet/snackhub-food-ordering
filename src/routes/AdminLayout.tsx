@@ -10,6 +10,7 @@ import AdminLoginPage from "@/pages/admin/AdminLoginPage";
 import { Skeleton } from "@/components/Skeleton";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
+import UpcomingShiftPrompt from "@/components/admin/UpcomingShiftPrompt";
 
 /** Trang nhân viên được vào. Cố ý không có "/admin" trần: đó là trang đích sau đăng nhập, nhân viên bị đưa sang Lịch của tôi. */
 const STAFF_ALLOWED_PATHS = ["/admin/don-hang", "/admin/cham-cong", "/admin/lich-cua-toi"];
@@ -90,6 +91,7 @@ export default function AdminLayout() {
             </main>
           </div>
         </div>
+        {!isAdmin && isStaff && session && <UpcomingShiftPrompt staffId={session.user.id} />}
         <ScheduledOrderAlerts
           alerts={scheduledAlerts.alerts}
           onDismiss={scheduledAlerts.dismiss}
