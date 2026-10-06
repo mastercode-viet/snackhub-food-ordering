@@ -203,6 +203,41 @@ export async function fetchAwaitingScheduledOrders(): Promise<ScheduledOrder[]> 
   return data;
 }
 
+export const ORDERS_PAGE_SIZE = 20;
+
+/**
+ * Một trang đơn cho các tab lịch sử ("Tất cả", "Hoàn tất", "Đã huỷ") — phân trang
+ * ở server (range + count) để xem được toàn bộ lịch sử, không bị giới hạn 100 đơn
+ * mới nhất như fetchAdminOrders. Tìm kiếm theo mã đơn / tên / SĐT chạy trên toàn
+ * bộ đơn, không chỉ trang đang xem.
+ */
+export async function fetchAdminOrdersPage(opts: {
+  page: number;
+  status?: Tables<"orders">["status"];
+  search?: string;
+  building?: string;
+}): Promise<{ rows: AdminOrder[]; total: number }> {
+  const from = (opts.page - 1) * ORDERS_PAGE_SIZE;
+  let query = supabase
+    .from("orders")
+    .select(ORDER_COLUMNS, { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(from, from + ORDERS_PAGE_SIZE - 1);
+
+  if (opts.status) query = query.eq("status", opts.status);
+  if (opts.building) query = query.eq("building", opts.building);
+
+  // Bỏ ký tự đặc biệt của cú pháp or() PostgREST (dấu phẩy, ngoặc, %, *).
+  const q = (opts.search ?? "").replace(/[^\p{L}\p{N}\s-]/gu, "").trim();
+  if (q) {
+    query = query.or(`order_code.ilike.%${q}%,customer_name.ilike.%${q}%,customer_phone.ilike.%${q}%`);
+  }
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+  return { rows: data as unknown as AdminOrder[], total: count ?? 0 };
+}
+
 /** Đếm nhanh đơn "chờ xác nhận" — dùng cho huy hiệu (badge) trên menu Đơn hàng, không kéo cả danh sách. */
 export async function fetchPendingOrderCount(): Promise<number> {
   const { count, error } = await supabase

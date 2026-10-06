@@ -27,10 +27,13 @@ import { OrderStatusBadge, STATUS_LABEL } from "@/components/order/OrderStatus";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import Pagination from "@/components/admin/Pagination";
 import { formatDesiredTime, getDesiredDeliverySla, isAwaitingScheduled } from "@/lib/orderSla";
 import {
   cancelOrderAsAdmin,
   fetchAdminOrders,
+  fetchAdminOrdersPage,
+  ORDERS_PAGE_SIZE,
   markOrderPaid,
   setOrderStatus,
   type AdminOrder,
@@ -183,6 +186,7 @@ export default function AdminOrdersPage() {
       .channel("admin-orders")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
         state.reload();
+        allPage.reload();
       })
       .subscribe();
 
@@ -283,16 +287,48 @@ export default function AdminOrdersPage() {
   // Gom `visible` (đã lọc + sắp SLA) thành từng nhóm theo toà nhà, giữ
   // nguyên thứ tự ưu tiên SLA bên trong mỗi nhóm — chỉ đổi cách trình bày,
   // không đổi cách xếp hạng đơn cần xử lý trước.
+  // Phân trang 20 đơn/trang cho mọi tab TRỪ 3 tab xử lý hằng ngày (Chờ xác nhận,
+  // Đang làm, Đang giao — cần thấy hết đơn đang chạy trên một màn).
+  //   - Tab lịch sử (Tất cả / Hoàn tất / Đã huỷ): phân trang ở server, xem được
+  //     toàn bộ lịch sử chứ không chỉ 100 đơn mới nhất.
+  //   - Tab "Trễ SLA" / "Hẹn giờ giao": lọc từ đơn đang chạy (realtime) nên chia
+  //     trang ngay ở client, giữ nguyên thứ tự ưu tiên.
+  const serverPaged = tab === "all" || tab === "completed" || tab === "cancelled";
+  const clientPaged = tab === "sla_overdue" || tab === "scheduled";
+  const [page, setPage] = useState(1);
+  useEffect(() => setPage(1), [tab, debouncedSearch, buildingFilter]);
+  // Gắn khoá yêu cầu vào kết quả: đổi tab/trang thì không hiện nhầm dữ liệu của lần trước.
+  const pageKey = `${tab}|${page}|${debouncedSearch}|${buildingFilter}`;
+  const allPageRaw = useAsync(
+    () =>
+      serverPaged
+        ? fetchAdminOrdersPage({
+            page,
+            status: tab === "all" ? undefined : (tab as OrderStatus),
+            search: debouncedSearch,
+            building: isAdmin && buildingFilter !== "all" ? buildingFilter : undefined,
+          }).then((r) => ({ ...r, key: pageKey }))
+        : Promise.resolve(null),
+    [tab, page, debouncedSearch, buildingFilter, isAdmin],
+  );
+  const allPage = { ...allPageRaw, data: allPageRaw.data?.key === pageKey ? allPageRaw.data : null };
+  const list = serverPaged
+    ? (allPage.data?.rows ?? [])
+    : clientPaged
+      ? visible.slice((page - 1) * ORDERS_PAGE_SIZE, page * ORDERS_PAGE_SIZE)
+      : visible;
+  const pagedTotal = serverPaged ? (allPage.data?.total ?? 0) : clientPaged ? visible.length : 0;
+
   const groupedByBuilding = useMemo(() => {
     if (!groupByBuilding) return null;
     const map = new Map<string, AdminOrder[]>();
-    for (const o of visible) {
+    for (const o of list) {
       const list = map.get(o.building) ?? [];
       list.push(o);
       map.set(o.building, list);
     }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "vi"));
-  }, [visible, groupByBuilding]);
+  }, [list, groupByBuilding]);
 
   const counts = useMemo(() => {
     const map = new Map<string, number>();
@@ -300,13 +336,15 @@ export default function AdminOrdersPage() {
     return map;
   }, [orders]);
 
-  const selected = orders.find((o) => o.id === selectedId) ?? null;
+  const selected =
+    orders.find((o) => o.id === selectedId) ?? allPage.data?.rows.find((o) => o.id === selectedId) ?? null;
 
   async function run(action: () => Promise<unknown>, okMessage: string) {
     try {
       await action();
       toast.success(okMessage);
       state.reload();
+      allPage.reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không cập nhật được, thử lại nhé.");
     }
@@ -390,9 +428,10 @@ export default function AdminOrdersPage() {
         {TABS.map((t) => {
           const active = t.key === tab;
           let count = 0;
-          if (t.key === "all") count = orders.length;
+          if (t.key === "all") count = tab === "all" && allPage.data ? allPage.data.total : orders.length;
           else if (t.key === "sla_overdue") count = criticalCount + warningCount;
           else if (t.key === "scheduled") count = orders.filter(isOpenScheduled).length;
+          else if (t.key === tab && serverPaged && allPage.data) count = allPage.data.total;
           else count = counts.get(t.key) ?? 0;
 
           const isSlaTab = t.key === "sla_overdue";
@@ -476,7 +515,11 @@ export default function AdminOrdersPage() {
       ) : (
         <div className="flex flex-col gap-gutter-mobile xl:flex-row xl:gap-gutter">
           <section className="flex min-w-0 flex-1 flex-col rounded-card-lg bg-surface-container-lowest p-4 shadow-card">
-            {visible.length === 0 ? (
+            {serverPaged && allPage.loading && !allPage.data ? (
+              <Skeleton className="h-64 w-full rounded-card" />
+            ) : serverPaged && allPage.error ? (
+              <ErrorState onRetry={allPage.reload} />
+            ) : list.length === 0 ? (
               <EmptyState
                 icon="🧾"
                 title={
@@ -527,7 +570,7 @@ export default function AdminOrdersPage() {
               </div>
             ) : (
               <ul className="flex flex-col divide-y divide-outline-variant">
-                {visible.map((order) => (
+                {list.map((order) => (
                   <OrderRow
                     key={order.id}
                     order={order}
@@ -537,6 +580,18 @@ export default function AdminOrdersPage() {
                   />
                 ))}
               </ul>
+            )}
+
+            {(serverPaged || clientPaged) && (
+              <Pagination
+                page={page}
+                pageSize={ORDERS_PAGE_SIZE}
+                total={pagedTotal}
+                onChange={(p) => {
+                  setPage(p);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+              />
             )}
           </section>
 
