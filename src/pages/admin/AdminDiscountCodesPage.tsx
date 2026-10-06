@@ -15,6 +15,7 @@ import { FormField, LabeledSwitch, MoneyInput, Toggle, inputClass } from "@/comp
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import { BulkDeleteBar, SelectCheckbox, useBulkSelection } from "@/components/admin/BulkSelect";
 import {
   createDiscountCode,
   deleteDiscountCode,
@@ -59,6 +60,7 @@ export default function AdminDiscountCodesPage() {
   });
 
   const activeCount = discountCodes.filter((d) => d.is_active).length;
+  const bulk = useBulkSelection(filtered.map((d) => d.id));
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -127,25 +129,40 @@ export default function AdminDiscountCodesPage() {
                 }
               />
             ) : (
-              <ul className="flex flex-col divide-y divide-outline-variant/60">
-                {filtered.map((item) => (
-                  <DiscountCodeRow
-                    key={item.id}
-                    item={item}
-                    active={item.id === editingId}
-                    onSelect={() => {
-                      setCreating(false);
-                      setEditingId(item.id);
-                    }}
-                    onToggle={(on) =>
-                      run(
-                        () => setDiscountCodeActive(item.id, on),
-                        on ? `Đã kích hoạt mã ${item.code}.` : `Đã tắt mã ${item.code}.`,
-                      )
-                    }
-                  />
-                ))}
-              </ul>
+              <>
+                <BulkDeleteBar
+                  selection={bulk}
+                  items={filtered}
+                  noun="mã"
+                  nameOf={(d) => d.code}
+                  deleteOne={(d) => deleteDiscountCode(d.id)}
+                  onDone={() => {
+                    setEditingId(null);
+                    state.reload();
+                  }}
+                />
+                <ul className="flex flex-col divide-y divide-outline-variant/60">
+                  {filtered.map((item) => (
+                    <DiscountCodeRow
+                      key={item.id}
+                      item={item}
+                      active={item.id === editingId}
+                      checked={bulk.isSelected(item.id)}
+                      onCheck={() => bulk.toggle(item.id)}
+                      onSelect={() => {
+                        setCreating(false);
+                        setEditingId(item.id);
+                      }}
+                      onToggle={(on) =>
+                        run(
+                          () => setDiscountCodeActive(item.id, on),
+                          on ? `Đã kích hoạt mã ${item.code}.` : `Đã tắt mã ${item.code}.`,
+                        )
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
             )}
           </section>
 
@@ -171,11 +188,15 @@ export default function AdminDiscountCodesPage() {
 function DiscountCodeRow({
   item,
   active,
+  checked,
+  onCheck,
   onSelect,
   onToggle,
 }: {
   item: AdminDiscountCode;
   active: boolean;
+  checked: boolean;
+  onCheck: () => void;
   onSelect: () => void;
   onToggle: (on: boolean) => void;
 }) {
@@ -184,6 +205,7 @@ function DiscountCodeRow({
 
   return (
     <li className="flex items-start justify-between gap-3 py-3">
+      <SelectCheckbox checked={checked} onChange={onCheck} label={`Chọn mã ${item.code}`} />
       <button
         type="button"
         onClick={onSelect}

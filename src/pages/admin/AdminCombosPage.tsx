@@ -19,6 +19,7 @@ import { FormField, LabeledSwitch, MoneyInput, Toggle, inputClass } from "@/comp
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import { BulkDeleteBar, SelectCheckbox, useBulkSelection } from "@/components/admin/BulkSelect";
 import {
   createCombo,
   deleteCombo,
@@ -69,6 +70,7 @@ export default function AdminCombosPage() {
   });
 
   const availableCount = combos.filter((c) => c.is_available).length;
+  const bulk = useBulkSelection(filtered.map((c) => c.id));
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -137,31 +139,46 @@ export default function AdminCombosPage() {
                 }
               />
             ) : (
-              <ul className="flex flex-col divide-y divide-outline-variant/60">
-                {filtered.map((combo) => (
-                  <ComboRow
-                    key={combo.id}
-                    combo={combo}
-                    active={combo.id === editingId}
-                    onSelect={() => {
-                      setCreating(false);
-                      setEditingId(combo.id);
-                    }}
-                    onToggleAvailable={(on) =>
-                      run(
-                        () => setComboAvailability(combo.id, on),
-                        on ? `Đã mở bán "${combo.name}".` : `Đã tắt mở bán "${combo.name}".`,
-                      )
-                    }
-                    onToggleFeatured={(on) =>
-                      run(
-                        () => setComboFeatured(combo.id, on),
-                        on ? `Đã đặt "${combo.name}" làm nổi bật.` : `Đã bỏ nổi bật "${combo.name}".`,
-                      )
-                    }
-                  />
-                ))}
-              </ul>
+              <>
+                <BulkDeleteBar
+                  selection={bulk}
+                  items={filtered}
+                  noun="combo"
+                  nameOf={(c) => c.name}
+                  deleteOne={(c) => deleteCombo(c.id)}
+                  onDone={() => {
+                    setEditingId(null);
+                    state.reload();
+                  }}
+                />
+                <ul className="flex flex-col divide-y divide-outline-variant/60">
+                  {filtered.map((combo) => (
+                    <ComboRow
+                      key={combo.id}
+                      combo={combo}
+                      active={combo.id === editingId}
+                      checked={bulk.isSelected(combo.id)}
+                      onCheck={() => bulk.toggle(combo.id)}
+                      onSelect={() => {
+                        setCreating(false);
+                        setEditingId(combo.id);
+                      }}
+                      onToggleAvailable={(on) =>
+                        run(
+                          () => setComboAvailability(combo.id, on),
+                          on ? `Đã mở bán "${combo.name}".` : `Đã tắt mở bán "${combo.name}".`,
+                        )
+                      }
+                      onToggleFeatured={(on) =>
+                        run(
+                          () => setComboFeatured(combo.id, on),
+                          on ? `Đã đặt "${combo.name}" làm nổi bật.` : `Đã bỏ nổi bật "${combo.name}".`,
+                        )
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
             )}
           </section>
 
@@ -188,12 +205,16 @@ export default function AdminCombosPage() {
 function ComboRow({
   combo,
   active,
+  checked,
+  onCheck,
   onSelect,
   onToggleAvailable,
   onToggleFeatured,
 }: {
   combo: AdminCombo;
   active: boolean;
+  checked: boolean;
+  onCheck: () => void;
   onSelect: () => void;
   onToggleAvailable: (on: boolean) => void;
   onToggleFeatured: (on: boolean) => void;
@@ -210,6 +231,7 @@ function ComboRow({
 
   return (
     <li className="flex items-start justify-between gap-3 py-3">
+      <SelectCheckbox checked={checked} onChange={onCheck} label={`Chọn ${combo.name}`} />
       <button
         type="button"
         onClick={onSelect}

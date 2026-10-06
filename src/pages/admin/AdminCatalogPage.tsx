@@ -9,6 +9,7 @@ import { FormField, LabeledSwitch, MoneyInput, Toggle, inputClass } from "@/comp
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import { BulkDeleteBar, SelectCheckbox, useBulkSelection } from "@/components/admin/BulkSelect";
 import {
   createCategory,
   createProduct,
@@ -62,6 +63,7 @@ export default function AdminCatalogPage() {
   }, [products, query]);
 
   const selected = products.find((p) => p.id === selectedId) ?? null;
+  const bulk = useBulkSelection(visible.map((p) => p.id));
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -130,25 +132,40 @@ export default function AdminCatalogPage() {
             {visible.length === 0 ? (
               <EmptyState icon="🍽️" title="Không có món nào khớp" />
             ) : (
-              <ul className="flex flex-col divide-y divide-outline-variant">
-                {visible.map((p) => (
-                  <ProductRow
-                    key={p.id}
-                    product={p}
-                    active={p.id === selectedId}
-                    onSelect={() => {
-                      setCreating(false);
-                      setSelectedId(p.id);
-                    }}
-                    onToggle={() =>
-                      void run(
-                        () => setProductAvailability(p.id, !p.is_available),
-                        p.is_available ? `Đã tắt bán "${p.name}".` : `Đã bật bán lại "${p.name}".`,
-                      )
-                    }
-                  />
-                ))}
-              </ul>
+              <>
+                <BulkDeleteBar
+                  selection={bulk}
+                  items={visible}
+                  noun="món"
+                  nameOf={(p) => p.name}
+                  deleteOne={(p) => deleteProduct(p.id)}
+                  onDone={() => {
+                    setSelectedId(null);
+                    state.reload();
+                  }}
+                />
+                <ul className="flex flex-col divide-y divide-outline-variant">
+                  {visible.map((p) => (
+                    <ProductRow
+                      key={p.id}
+                      product={p}
+                      active={p.id === selectedId}
+                      checked={bulk.isSelected(p.id)}
+                      onCheck={() => bulk.toggle(p.id)}
+                      onSelect={() => {
+                        setCreating(false);
+                        setSelectedId(p.id);
+                      }}
+                      onToggle={() =>
+                        void run(
+                          () => setProductAvailability(p.id, !p.is_available),
+                          p.is_available ? `Đã tắt bán "${p.name}".` : `Đã bật bán lại "${p.name}".`,
+                        )
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
             )}
           </section>
 
@@ -207,11 +224,15 @@ function TabButton({
 function ProductRow({
   product,
   active,
+  checked,
+  onCheck,
   onSelect,
   onToggle,
 }: {
   product: AdminProductRow;
   active: boolean;
+  checked: boolean;
+  onCheck: () => void;
   onSelect: () => void;
   onToggle: () => void;
 }) {
@@ -221,6 +242,7 @@ function ProductRow({
         active ? "bg-surface-container" : "hover:bg-surface-container-low"
       }`}
     >
+      <SelectCheckbox checked={checked} onChange={onCheck} label={`Chọn ${product.name}`} />
       <button
         type="button"
         onClick={onSelect}

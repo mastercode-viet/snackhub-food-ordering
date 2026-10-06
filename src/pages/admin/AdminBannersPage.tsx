@@ -7,6 +7,7 @@ import { FormField, LabeledSwitch, Toggle, inputClass } from "@/components/admin
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
+import { BulkDeleteBar, SelectCheckbox, useBulkSelection } from "@/components/admin/BulkSelect";
 import {
   createBanner,
   deleteBanner,
@@ -44,6 +45,7 @@ export default function AdminBannersPage() {
   const banners = state.data ?? [];
   const editing = banners.find((b) => b.id === editingId) ?? null;
   const activeCount = banners.filter((b) => b.is_active).length;
+  const bulk = useBulkSelection(banners.map((b) => b.id));
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -93,25 +95,40 @@ export default function AdminBannersPage() {
                 description="Thêm banner đầu tiên để quảng bá món mới hay đợt giảm giá."
               />
             ) : (
-              <ul className="flex flex-col divide-y divide-outline-variant">
-                {banners.map((banner) => (
-                  <BannerRow
-                    key={banner.id}
-                    banner={banner}
-                    active={banner.id === editingId}
-                    onSelect={() => {
-                      setCreating(false);
-                      setEditingId(banner.id);
-                    }}
-                    onToggle={(on) =>
-                      run(
-                        () => setBannerActive(banner.id, on),
-                        on ? "Đã bật banner." : "Đã tắt banner.",
-                      )
-                    }
-                  />
-                ))}
-              </ul>
+              <>
+                <BulkDeleteBar
+                  selection={bulk}
+                  items={banners}
+                  noun="banner"
+                  nameOf={(b) => `Banner #${b.sort_order}`}
+                  deleteOne={(b) => deleteBanner(b.id)}
+                  onDone={() => {
+                    setEditingId(null);
+                    state.reload();
+                  }}
+                />
+                <ul className="flex flex-col divide-y divide-outline-variant">
+                  {banners.map((banner) => (
+                    <BannerRow
+                      key={banner.id}
+                      banner={banner}
+                      active={banner.id === editingId}
+                      checked={bulk.isSelected(banner.id)}
+                      onCheck={() => bulk.toggle(banner.id)}
+                      onSelect={() => {
+                        setCreating(false);
+                        setEditingId(banner.id);
+                      }}
+                      onToggle={(on) =>
+                        run(
+                          () => setBannerActive(banner.id, on),
+                          on ? "Đã bật banner." : "Đã tắt banner.",
+                        )
+                      }
+                    />
+                  ))}
+                </ul>
+              </>
             )}
           </section>
 
@@ -139,16 +156,21 @@ export default function AdminBannersPage() {
 function BannerRow({
   banner,
   active,
+  checked,
+  onCheck,
   onSelect,
   onToggle,
 }: {
   banner: AdminBanner;
   active: boolean;
+  checked: boolean;
+  onCheck: () => void;
   onSelect: () => void;
   onToggle: (on: boolean) => void;
 }) {
   return (
     <li className="flex items-center gap-3 py-2.5">
+      <SelectCheckbox checked={checked} onChange={onCheck} label={`Chọn banner #${banner.sort_order}`} />
       <button
         type="button"
         onClick={onSelect}

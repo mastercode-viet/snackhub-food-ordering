@@ -38,7 +38,7 @@ export default function ToastHost() {
               className={`pointer-events-auto flex items-center gap-2.5 rounded-card px-4 py-3 shadow-lift ${bg} ${fg}`}
             >
               <Icon size={18} strokeWidth={2.4} className="shrink-0" />
-              <p className="min-w-0 flex-1 text-label-md">{t.message}</p>
+              <p className="min-w-0 flex-1 whitespace-pre-line text-label-md">{t.message}</p>
               <button
                 type="button"
                 onClick={() => dismiss(t.id)}
