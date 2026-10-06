@@ -3,6 +3,8 @@ import { createContext, useContext } from "react";
 /** Tách riêng khỏi AdminLayout.tsx theo đúng khuôn useAdminSidebar.ts để tránh vòng lặp import. */
 export type AdminOrderAlertsState = {
   soundEnabled: boolean;
+  /** Âm đang bật nhưng trình duyệt chưa cho phát (chưa có tương tác nào trên trang). */
+  soundBlocked: boolean;
   enableSound: () => Promise<void>;
   disableSound: () => void;
   /** Số đơn "chờ xác nhận" hiện tại — hiển thị huy hiệu trên menu Đơn hàng. */

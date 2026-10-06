@@ -141,7 +141,7 @@ export function getOrderSla(
 export default function AdminOrdersPage() {
   const { isAdmin } = useOutletContext<AdminOutletContext>();
   const state = useAsync(() => fetchAdminOrders(), []);
-  const { soundEnabled, enableSound, disableSound } = useAdminOrderAlerts();
+  const { soundEnabled, soundBlocked, enableSound, disableSound } = useAdminOrderAlerts();
   const [tab, setTab] = useState<TabKey>("pending_confirmation");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -385,7 +385,12 @@ export default function AdminOrdersPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <OrderSoundToggle enabled={soundEnabled} onEnable={() => void enableSound()} onDisable={disableSound} />
+          <OrderSoundToggle
+            enabled={soundEnabled}
+            blocked={soundBlocked}
+            onEnable={() => void enableSound()}
+            onDisable={disableSound}
+          />
           <button
             type="button"
             onClick={state.reload}

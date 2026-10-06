@@ -4,7 +4,9 @@ import { fetchPendingOrderCount } from "@/lib/adminQueries";
 import type { AdminOrderAlertsState } from "@/hooks/useAdminOrderAlerts";
 import type { Tables } from "@/types/database";
 
-const STORAGE_KEY = "admin_order_sound_enabled";
+// "_v2": bản cũ tự lưu "0" mỗi lần trình duyệt chặn phát âm, nên nhiều máy đang nhớ
+// nhầm là tắt — đổi khoá để ai cũng bắt đầu lại ở trạng thái mặc định BẬT.
+const STORAGE_KEY = "admin_order_sound_enabled_v2";
 const SOUND_SRC = "/sounds/ring.mp3";
 
 type OrderRow = Tables<"orders">;
@@ -16,8 +18,10 @@ type OrderRow = Tables<"orders">;
  * rời trang Đơn hàng sang xem Thực đơn/Thống kê... — đó chính là lỗi "không
  * hoạt động toàn cục" trước đây.
  *
- * Autoplay policy bắt buộc unlock qua tương tác UI (enableSound) trước khi
- * trình duyệt cho .play().
+ * Âm báo MẶC ĐỊNH BẬT (chỉ tắt khi Admin tự bấm tắt — lưu localStorage "0").
+ * Autoplay policy của trình duyệt vẫn bắt buộc một tương tác của người dùng
+ * trước khi cho .play(): hook tự "mở khoá" ở lần chạm/bấm/gõ phím ĐẦU TIÊN bất
+ * kỳ đâu trên trang. Trước lúc đó `soundBlocked = true` để UI nhắc "chạm để bật âm".
  *
  * Hai nguồn phát âm KHÔNG trùng nhau:
  *   - Đơn COD: phát ngay lúc tạo (INSERT) — khách đặt xong là admin cần biết
@@ -29,11 +33,13 @@ type OrderRow = Tables<"orders">;
 export function useOrderNotification(): AdminOrderAlertsState {
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY) === "1";
+      return localStorage.getItem(STORAGE_KEY) !== "0";
     } catch {
-      return false;
+      return true;
     }
   });
+  // Trình duyệt đã cho phát âm chưa (cần một tương tác của người dùng trong phiên này).
+  const [unlocked, setUnlocked] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -49,22 +55,43 @@ export function useOrderNotification(): AdminOrderAlertsState {
     }
   };
 
-  const enableSound = useCallback(async () => {
+  /** Phát thử không tiếng để trình duyệt ghi nhận đã được phép — phải gọi trong một sự kiện người dùng. */
+  const unlockAudio = useCallback(async (): Promise<boolean> => {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio) return false;
     try {
       audio.muted = true;
       await audio.play();
       audio.pause();
       audio.currentTime = 0;
       audio.muted = false;
-      setSoundEnabled(true);
-      persist(true);
+      setUnlocked(true);
+      return true;
     } catch {
-      setSoundEnabled(false);
-      persist(false);
+      audio.muted = false;
+      return false;
     }
   }, []);
+
+  const enableSound = useCallback(async () => {
+    setSoundEnabled(true);
+    persist(true);
+    await unlockAudio();
+  }, [unlockAudio]);
+
+  // Tự mở khoá ở lần tương tác đầu tiên bất kỳ đâu — Admin không phải tìm nút bật âm.
+  useEffect(() => {
+    if (unlocked) return;
+    const onFirstInteraction = () => {
+      void unlockAudio().then((ok) => {
+        if (ok) remove();
+      });
+    };
+    const events = ["pointerdown", "keydown", "touchstart"] as const;
+    const remove = () => events.forEach((ev) => document.removeEventListener(ev, onFirstInteraction));
+    events.forEach((ev) => document.addEventListener(ev, onFirstInteraction, { passive: true }));
+    return remove;
+  }, [unlocked, unlockAudio]);
 
   const disableSound = useCallback(() => {
     setSoundEnabled(false);
@@ -80,9 +107,9 @@ export function useOrderNotification(): AdminOrderAlertsState {
     if (!audio) return;
     audio.currentTime = 0;
     audio.play().catch(() => {
-      // Autoplay bị chặn lại (vd. tab mất focus/permission thu hồi) — tắt cờ để UI phản ánh đúng trạng thái.
-      setSoundEnabled(false);
-      persist(false);
+      // Trình duyệt chưa cho phát (chưa có tương tác) — GIỮ lựa chọn "bật" của Admin,
+      // chỉ đánh dấu bị chặn để UI nhắc chạm vào trang; lần tương tác sau sẽ mở khoá.
+      setUnlocked(false);
     });
   }, []);
 
@@ -128,5 +155,5 @@ export function useOrderNotification(): AdminOrderAlertsState {
     };
   }, [playSound, refreshPendingCount]);
 
-  return { soundEnabled, enableSound, disableSound, pendingCount, playSound };
+  return { soundEnabled, soundBlocked: soundEnabled && !unlocked, enableSound, disableSound, pendingCount, playSound };
 }

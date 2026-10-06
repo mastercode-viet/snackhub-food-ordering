@@ -83,7 +83,7 @@ export default function AdminLayout() {
         <ScheduledOrderAlerts
           alerts={scheduledAlerts.alerts}
           onDismiss={scheduledAlerts.dismiss}
-          soundEnabled={orderAlerts.soundEnabled}
+          soundEnabled={orderAlerts.soundEnabled && !orderAlerts.soundBlocked}
           onEnableSound={() => void orderAlerts.enableSound().then(orderAlerts.playSound)}
         />
       </AdminOrderAlertsContext.Provider>
