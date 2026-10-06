@@ -316,7 +316,7 @@ export type Database = {
         Row: {
           admin_note: string | null
           assigned_staff_id: string | null
-          building: string
+          building: string | null
           cancel_reason: string | null
           cancelled_at: string | null
           cancelled_by: Database["public"]["Enums"]["cancelled_by"] | null
@@ -326,6 +326,7 @@ export type Database = {
           created_at: string
           customer_name: string
           customer_phone: string
+          delivery_method: Database["public"]["Enums"]["delivery_method"]
           delivery_note: string | null
           desired_delivery_time: string | null
           discount_amount: number
@@ -351,7 +352,7 @@ export type Database = {
         Insert: {
           admin_note?: string | null
           assigned_staff_id?: string | null
-          building: string
+          building?: string | null
           cancel_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: Database["public"]["Enums"]["cancelled_by"] | null
@@ -361,6 +362,7 @@ export type Database = {
           created_at?: string
           customer_name: string
           customer_phone: string
+          delivery_method?: Database["public"]["Enums"]["delivery_method"]
           delivery_note?: string | null
           desired_delivery_time?: string | null
           discount_amount?: number
@@ -386,7 +388,7 @@ export type Database = {
         Update: {
           admin_note?: string | null
           assigned_staff_id?: string | null
-          building?: string
+          building?: string | null
           cancel_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: Database["public"]["Enums"]["cancelled_by"] | null
@@ -396,6 +398,7 @@ export type Database = {
           created_at?: string
           customer_name?: string
           customer_phone?: string
+          delivery_method?: Database["public"]["Enums"]["delivery_method"]
           delivery_note?: string | null
           desired_delivery_time?: string | null
           discount_amount?: number
@@ -1106,7 +1109,11 @@ export type Database = {
           cod_revenue: number | null
           completed_orders: number | null
           day: string | null
+          delivery_orders: number | null
+          delivery_revenue: number | null
           payos_revenue: number | null
+          pickup_orders: number | null
+          pickup_revenue: number | null
           revenue: number | null
           sla_breached_orders: number | null
           total_discount: number | null
@@ -1303,6 +1310,7 @@ export type Database = {
     }
     Enums: {
       cancelled_by: "customer" | "admin" | "system"
+      delivery_method: "delivery" | "pickup"
       discount_type: "percent" | "fixed"
       order_status:
         | "pending_confirmation"
@@ -1443,6 +1451,7 @@ export const Constants = {
   public: {
     Enums: {
       cancelled_by: ["customer", "admin", "system"],
+      delivery_method: ["delivery", "pickup"],
       discount_type: ["percent", "fixed"],
       order_status: [
         "pending_confirmation",

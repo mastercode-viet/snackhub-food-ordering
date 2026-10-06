@@ -58,7 +58,7 @@ export default function ScheduledOrderAlerts({
                     {minutesLeft > 0 ? `Còn ${minutesLeft} phút tới giờ hẹn` : `Trễ hẹn ${-minutesLeft} phút`}
                   </p>
                   <p className="mt-0.5 text-body-sm">
-                    Đơn <strong className="font-mono">{a.orderCode}</strong> · {a.customerName} · Toà {a.building} — hẹn nhận{" "}
+                    Đơn <strong className="font-mono">{a.orderCode}</strong> · {a.customerName} · {a.place} — hẹn nhận{" "}
                     {formatDesiredTime(a.desiredAt)}, chưa chuyển "Đang giao".
                   </p>
                 </div>

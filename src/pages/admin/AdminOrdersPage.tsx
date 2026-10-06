@@ -10,6 +10,8 @@ import {
   Layers,
   NotebookPen,
   Phone,
+  Store,
+  Truck,
   RotateCw,
   Timer,
 } from "lucide-react";
@@ -23,12 +25,13 @@ import { supabase } from "@/lib/supabase";
 import { normalizeSearch } from "@/lib/text";
 import { formatVnd, formatTime } from "@/lib/format";
 import { toast } from "@/store/toast";
-import { OrderStatusBadge, STATUS_LABEL } from "@/components/order/OrderStatus";
+import { OrderStatusBadge, statusLabel } from "@/components/order/OrderStatus";
 import EmptyState from "@/components/ui/EmptyState";
 import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
 import Pagination from "@/components/admin/Pagination";
 import { formatDesiredTime, getDesiredDeliverySla, isAwaitingScheduled } from "@/lib/orderSla";
+import { PICKUP_GROUP, PICKUP_READY_LABEL, placeKey, placeLabel } from "@/lib/delivery";
 import {
   cancelOrderAsAdmin,
   fetchAdminOrders,
@@ -47,12 +50,19 @@ const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>>
   delivering: { status: "completed", label: "Hoàn tất đơn" },
 };
 
+/** Đơn nhận tại quán: bước giữa là "món xong, chờ khách tới lấy" thay vì "đi giao". */
+const PICKUP_NEXT: typeof NEXT = {
+  ...NEXT,
+  preparing: { status: "delivering", label: "Món xong · chờ khách lấy" },
+  delivering: { status: "completed", label: "Khách đã nhận món" },
+};
+
 type TabKey = OrderStatus | "all" | "sla_overdue" | "scheduled";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "pending_confirmation", label: "Chờ xác nhận" },
   { key: "preparing", label: "Đang làm" },
-  { key: "delivering", label: "Đang giao" },
+  { key: "delivering", label: "Đang giao / Chờ lấy" },
   { key: "completed", label: "Hoàn tất" },
   { key: "cancelled", label: "Đã huỷ" },
   { key: "all", label: "Tất cả" },
@@ -70,6 +80,15 @@ function splitDeliveryNote(note: string): Array<{ label: string | null; text: st
     const m = part.match(/^(Địa chỉ|Ghi chú): (.*)$/s);
     return m ? { label: m[1], text: m[2] } : { label: null, text: part };
   });
+}
+
+/**
+ * Mã đơn dạng "SH-9SV3HRTYZV". Khách hay đọc/nhắn thiếu tiền tố, có dấu cách
+ * hoặc chữ thường ("9sv3 hrtyzv") — bỏ hết ký tự không phải chữ/số và tiền tố
+ * "SH" rồi mới so, để Admin gõ kiểu nào cũng ra.
+ */
+function compactCode(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^SH/, "");
 }
 
 const hasCustomerNote = (o: AdminOrder) => !!o.delivery_note || o.order_items.some((i) => !!i.item_note);
@@ -110,6 +129,12 @@ export function getOrderSla(
       level: "normal",
       label: `${elapsedMinutes}p`,
     };
+  }
+
+  // Nhận tại quán: SLA chỉ đo lúc bếp làm món. Món xong ("Chờ khách lấy") thì
+  // dừng cảnh báo — khách đến trễ không phải lỗi của quán.
+  if (order.delivery_method === "pickup" && order.status === "delivering") {
+    return { elapsedMinutes, level: "normal", label: PICKUP_READY_LABEL };
   }
 
   // Đơn chưa hoàn tất:
@@ -223,8 +248,11 @@ export default function AdminOrdersPage() {
 
   // Danh sách toà nhà có đơn thật, để đổ vào <select> lọc — không bày sẵn
   // toà không ai đặt, và Superadmin biết ngay khu nào đang phát sinh đơn.
+  // Đơn nhận tại quán gom thành một "chỗ nhận" riêng, đứng cuối danh sách.
   const buildings = useMemo(() => {
-    return [...new Set(orders.map((o) => o.building))].sort((a, b) => a.localeCompare(b, "vi"));
+    return [...new Set(orders.map(placeKey))].sort((a, b) =>
+      a === PICKUP_GROUP ? 1 : b === PICKUP_GROUP ? -1 : a.localeCompare(b, "vi"),
+    );
   }, [orders]);
 
   // Lọc và Sắp xếp ưu tiên: Đơn trễ hạn (Critical -> Warning) tự động đẩy lên đầu danh sách!
@@ -243,14 +271,16 @@ export default function AdminOrdersPage() {
     }
 
     if (isAdmin && buildingFilter !== "all") {
-      filtered = filtered.filter((o) => o.building === buildingFilter);
+      filtered = filtered.filter((o) => placeKey(o) === buildingFilter);
     }
 
     const q = normalizeSearch(debouncedSearch);
     if (q) {
+      const code = compactCode(debouncedSearch);
       filtered = filtered.filter(
         (o) =>
           normalizeSearch(o.order_code).includes(q) ||
+          (code.length >= 3 && compactCode(o.order_code).includes(code)) ||
           normalizeSearch(o.customer_name).includes(q) ||
           o.customer_phone.includes(q),
       );
@@ -315,7 +345,12 @@ export default function AdminOrdersPage() {
             page,
             status: tab === "all" ? undefined : (tab as OrderStatus),
             search: debouncedSearch,
-            building: isAdmin && buildingFilter !== "all" ? buildingFilter : undefined,
+            place:
+              isAdmin && buildingFilter !== "all"
+                ? buildingFilter === PICKUP_GROUP
+                  ? "pickup"
+                  : buildingFilter
+                : undefined,
           }).then((r) => ({ ...r, key: pageKey }))
         : Promise.resolve(null),
     [tab, page, debouncedSearch, buildingFilter, isAdmin],
@@ -326,17 +361,27 @@ export default function AdminOrdersPage() {
     : clientPaged
       ? visible.slice((page - 1) * ORDERS_PAGE_SIZE, page * ORDERS_PAGE_SIZE)
       : visible;
+  // Gõ/dán đúng trọn một mã đơn khách đọc cho → mở luôn đơn đó, khỏi bấm thêm.
+  useEffect(() => {
+    const code = compactCode(debouncedSearch);
+    if (code.length < 10 || list.length !== 1) return;
+    if (compactCode(list[0].order_code) === code) setSelectedId(list[0].id);
+  }, [debouncedSearch, list]);
+
   const pagedTotal = serverPaged ? (allPage.data?.total ?? 0) : clientPaged ? visible.length : 0;
 
   const groupedByBuilding = useMemo(() => {
     if (!groupByBuilding) return null;
     const map = new Map<string, AdminOrder[]>();
     for (const o of list) {
-      const list = map.get(o.building) ?? [];
-      list.push(o);
-      map.set(o.building, list);
+      const key = placeKey(o);
+      const group = map.get(key) ?? [];
+      group.push(o);
+      map.set(key, group);
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "vi"));
+    return [...map.entries()].sort((a, b) =>
+      a[0] === PICKUP_GROUP ? 1 : b[0] === PICKUP_GROUP ? -1 : a[0].localeCompare(b[0], "vi"),
+    );
   }, [list, groupByBuilding]);
 
   const counts = useMemo(() => {
@@ -427,7 +472,7 @@ export default function AdminOrdersPage() {
                     <span className="text-headline-sm">{formatDesiredTime(next.desired_delivery_time!)}</span> ({sla.label})
                   </p>
                   <p className="truncate text-body-sm opacity-90">
-                    {next.order_code} · {next.customer_name} · Toà {next.building}
+                    {next.order_code} · {next.customer_name} · {placeLabel(next)}
                   </p>
                 </div>
               </div>
@@ -534,7 +579,7 @@ export default function AdminOrdersPage() {
       <AdminSearchInput
         value={search}
         onChange={setSearch}
-        placeholder="Tìm theo mã đơn, tên khách hoặc số điện thoại…"
+        placeholder="Tìm mã đơn (vd. SH-9SV3…), tên khách hoặc số điện thoại…"
       />
 
       {/* Lọc/gom nhóm theo toà nhà: chỉ Superadmin điều phối giao hàng theo khu vực toàn quán. */}
@@ -549,7 +594,7 @@ export default function AdminOrdersPage() {
             <option value="all">Tất cả toà nhà</option>
             {buildings.map((b) => (
               <option key={b} value={b}>
-                Toà {b}
+                {b === PICKUP_GROUP ? PICKUP_GROUP : `Toà ${b}`}
               </option>
             ))}
           </select>
@@ -611,7 +656,7 @@ export default function AdminOrdersPage() {
                     <div className="flex items-center gap-2 px-1 pb-1.5">
                       <Building2 size={14} strokeWidth={2.4} className="text-on-surface-variant" />
                       <p className="text-label-sm font-bold uppercase tracking-wide text-on-surface-variant">
-                        Toà {building}
+                        {building === PICKUP_GROUP ? PICKUP_GROUP : `Toà ${building}`}
                       </p>
                       <span className="rounded-full bg-surface-container px-1.5 py-0.2 text-label-xs text-on-surface-variant">
                         {buildingOrders.length}
@@ -691,7 +736,7 @@ function OrderPanel({
 }) {
   const { email, isAdmin, staffId } = useOutletContext<AdminOutletContext>();
   const [cancelling, setCancelling] = useState(false);
-  const next = NEXT[order.status];
+  const next = (order.delivery_method === "pickup" ? PICKUP_NEXT : NEXT)[order.status];
   // Đơn VietQR chỉ được đẩy tới khi webhook đã xác nhận tiền về — tránh làm đồ
   // cho đơn chưa trả rồi mới phát hiện khách bỏ ngang.
   const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
@@ -719,7 +764,7 @@ function OrderPanel({
           </p>
 
         </div>
-        <OrderStatusBadge status={order.status} />
+        <OrderStatusBadge status={order.status} deliveryMethod={order.delivery_method} />
       </div>
 
       {/* Giờ giao khách hẹn — to, rõ để nhân viên thấy ngay khi mở đơn. */}
@@ -782,12 +827,19 @@ function OrderPanel({
           <Phone size={14} strokeWidth={2.4} />
           {order.customer_phone}
         </a>
-        <p className="text-body-sm text-on-surface-variant">
-          Toà <strong className="text-on-surface">{order.building}</strong>
-          {order.floor ? ` · Tầng ${order.floor}` : ""}
-          {order.room ? ` · Phòng ${order.room}` : ""}
-          {order.class_name ? ` · Lớp ${order.class_name}` : ""}
-        </p>
+        {order.delivery_method === "pickup" ? (
+          <p className="mt-1 inline-flex items-center gap-1.5 rounded-card bg-primary-fixed px-2.5 py-1 text-label-md font-semibold text-on-primary-fixed">
+            <Store size={14} strokeWidth={2.4} />
+            Khách tự đến quán nhận — không giao
+          </p>
+        ) : (
+          <p className="text-body-sm text-on-surface-variant">
+            Toà <strong className="text-on-surface">{order.building}</strong>
+            {order.floor ? ` · Tầng ${order.floor}` : ""}
+            {order.room ? ` · Phòng ${order.room}` : ""}
+            {order.class_name ? ` · Lớp ${order.class_name}` : ""}
+          </p>
+        )}
       </div>
 
       {/* Lưu ý của khách — làm nổi để nhân viên không bỏ sót khi làm/giao. */}
@@ -889,7 +941,7 @@ function OrderPanel({
               onClick={() =>
                 void onRun(
                   () => setOrderStatus(order.id, next.status),
-                  `Đơn ${order.order_code}: ${STATUS_LABEL[next.status]}.`,
+                  `Đơn ${order.order_code}: ${statusLabel(next.status, order.delivery_method)}.`,
                 )
               }
               className="min-h-[44px] rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
@@ -1084,7 +1136,7 @@ function OrderRow({
       >
         <div className="flex items-center gap-2">
           <span className="font-mono text-label-md font-bold text-on-surface">{order.order_code}</span>
-          <OrderStatusBadge status={order.status} />
+          <OrderStatusBadge status={order.status} deliveryMethod={order.delivery_method} />
         </div>
 
         {/* Huy hiệu bộ đếm thời gian SLA trực tiếp trên thẻ */}
@@ -1111,6 +1163,19 @@ function OrderRow({
           <span className="text-label-xs text-on-surface-variant">{formatTime(order.created_at)}</span>
         )}
 
+        {/* Loại đơn — luôn hiện để nhân viên biết đơn này đi giao hay để khách tới lấy. */}
+        {order.delivery_method === "pickup" ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary-fixed px-2.5 py-0.5 text-label-xs font-bold text-on-primary-fixed">
+            <Store size={12} strokeWidth={2.4} />
+            Nhận tại quán
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full bg-secondary-fixed px-2.5 py-0.5 text-label-xs font-bold text-on-secondary-fixed">
+            <Truck size={12} strokeWidth={2.4} />
+            Giao hàng
+          </span>
+        )}
+
         {order.desired_delivery_time && !isFinished && (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-inverse-surface px-3 py-1 text-label-md font-bold text-inverse-on-surface">
             <AlarmClock size={15} strokeWidth={2.4} />
@@ -1126,7 +1191,7 @@ function OrderRow({
         )}
 
         <span className="min-w-0 flex-1 truncate text-body-sm text-on-surface-variant">
-          {order.customer_name} · Toà {order.building}
+          {order.customer_name} · {placeLabel(order)}
           {order.room ? `-${order.room}` : ""}
         </span>
 

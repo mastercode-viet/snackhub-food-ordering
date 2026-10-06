@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { fetchAwaitingScheduledOrders, type ScheduledOrder } from "@/lib/adminQueries";
 import { getDesiredDeliverySla, type DesiredLevel } from "@/lib/orderSla";
+import { placeLabel } from "@/lib/delivery";
 
 const STORAGE_KEY = "admin_scheduled_alerts_notified";
 const TICK_MS = 15_000;
@@ -11,7 +12,8 @@ export type ScheduledAlert = {
   orderId: string;
   orderCode: string;
   customerName: string;
-  building: string;
+  /** "Toà A" | "Nhận tại quán" */
+  place: string;
   desiredAt: string;
   level: Exclude<DesiredLevel, "normal">;
 };
@@ -89,7 +91,7 @@ export function useScheduledOrderAlerts(playSound: () => void) {
           orderId: o.id,
           orderCode: o.order_code,
           customerName: o.customer_name,
-          building: o.building,
+          place: placeLabel(o),
           desiredAt: o.desired_delivery_time,
           level,
         });

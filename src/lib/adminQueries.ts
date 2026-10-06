@@ -137,6 +137,7 @@ export type AdminOrder = Pick<
   | "room"
   | "class_name"
   | "delivery_note"
+  | "delivery_method"
   | "desired_delivery_time"
   | "subtotal"
   | "discount_amount"
@@ -167,7 +168,7 @@ export type AdminOrder = Pick<
 // found" vì không biết embed theo cột nào.
 const ORDER_COLUMNS =
   "id, order_code, status, payment_method, payment_status, customer_name, customer_phone, " +
-  "building, floor, room, class_name, delivery_note, desired_delivery_time, subtotal, discount_amount, discount_code, " +
+  "building, floor, room, class_name, delivery_note, delivery_method, desired_delivery_time, subtotal, discount_amount, discount_code, " +
   "shipping_fee, total_amount, cancel_reason, cancelled_at, completed_at, created_at, " +
   "collected_by_staff_id, collected_by_staff:staff_profiles!orders_collected_by_staff_id_fkey(id, full_name), " +
   "assigned_staff_id, assigned_staff:staff_profiles!orders_assigned_staff_id_fkey(id, full_name), " +
@@ -187,14 +188,22 @@ export async function fetchAdminOrders(limit = 100): Promise<AdminOrder[]> {
 
 export type ScheduledOrder = Pick<
   Tables<"orders">,
-  "id" | "order_code" | "customer_name" | "building" | "status" | "desired_delivery_time" | "payment_method" | "payment_status"
+  | "id"
+  | "order_code"
+  | "customer_name"
+  | "building"
+  | "delivery_method"
+  | "status"
+  | "desired_delivery_time"
+  | "payment_method"
+  | "payment_status"
 >;
 
 /** Đơn hẹn giờ còn chờ xử lý (chưa "Đang giao") — nguồn cho chuông + pop-up cảnh báo giờ hẹn. */
 export async function fetchAwaitingScheduledOrders(): Promise<ScheduledOrder[]> {
   const { data, error } = await supabase
     .from("orders")
-    .select("id, order_code, customer_name, building, status, desired_delivery_time, payment_method, payment_status")
+    .select("id, order_code, customer_name, building, delivery_method, status, desired_delivery_time, payment_method, payment_status")
     .not("desired_delivery_time", "is", null)
     .in("status", ["pending_confirmation", "preparing"])
     .order("desired_delivery_time")
@@ -215,7 +224,8 @@ export async function fetchAdminOrdersPage(opts: {
   page: number;
   status?: Tables<"orders">["status"];
   search?: string;
-  building?: string;
+  /** Toà ("A"…) hoặc "pickup" = chỉ đơn nhận tại quán. */
+  place?: string;
 }): Promise<{ rows: AdminOrder[]; total: number }> {
   const from = (opts.page - 1) * ORDERS_PAGE_SIZE;
   let query = supabase
@@ -225,12 +235,18 @@ export async function fetchAdminOrdersPage(opts: {
     .range(from, from + ORDERS_PAGE_SIZE - 1);
 
   if (opts.status) query = query.eq("status", opts.status);
-  if (opts.building) query = query.eq("building", opts.building);
+  if (opts.place === "pickup") query = query.eq("delivery_method", "pickup");
+  else if (opts.place) query = query.eq("building", opts.place);
 
   // Bỏ ký tự đặc biệt của cú pháp or() PostgREST (dấu phẩy, ngoặc, %, *).
   const q = (opts.search ?? "").replace(/[^\p{L}\p{N}\s-]/gu, "").trim();
   if (q) {
-    query = query.or(`order_code.ilike.%${q}%,customer_name.ilike.%${q}%,customer_phone.ilike.%${q}%`);
+    // Mã đơn gõ thiếu tiền tố / có dấu cách ("9sv3 hrtyzv") vẫn khớp "SH-9SV3HRTYZV".
+    const code = q.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/^SH/, "");
+    const codeFilter = code.length >= 3 ? `,order_code.ilike.%${code}%` : "";
+    query = query.or(
+      `order_code.ilike.%${q}%,customer_name.ilike.%${q}%,customer_phone.ilike.%${q}%${codeFilter}`,
+    );
   }
 
   const { data, error, count } = await query;

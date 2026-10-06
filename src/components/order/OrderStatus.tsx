@@ -1,9 +1,10 @@
-import { Ban, Check, ChefHat, Bike, PackageCheck, Clock } from "lucide-react";
+import { Ban, Check, ChefHat, Bike, PackageCheck, Clock, Store } from "lucide-react";
 import { STORE_CONTACT } from "@/lib/contact";
 import { formatTime } from "@/lib/format";
 import type { Tables } from "@/types/database";
 
 type Status = Tables<"orders">["status"];
+type DeliveryMethod = Tables<"orders">["delivery_method"];
 
 /** Nhãn tiếng Việt của 5 trạng thái trong enum order_status. */
 export const STATUS_LABEL: Record<Status, string> = {
@@ -15,6 +16,11 @@ export const STATUS_LABEL: Record<Status, string> = {
 };
 
 /** Thứ tự trình bày: 4 bước theo luồng, "đã huỷ" nằm ngoài luồng nên xếp cuối. */
+/** Đơn nhận tại quán: bước 'delivering' nghĩa là món đã xong, chờ khách tới lấy. */
+export function statusLabel(status: Status, method: DeliveryMethod = "delivery"): string {
+  return method === "pickup" && status === "delivering" ? "Chờ khách lấy" : STATUS_LABEL[status];
+}
+
 export const STATUS_ORDER = [
   "pending_confirmation",
   "preparing",
@@ -46,7 +52,15 @@ const FLOW: Array<{ status: Status; label: string; detail: string; icon: typeof 
   { status: "completed", label: "Hoàn tất", detail: "Đơn đã giao xong. Chúc bạn ngon miệng!", icon: PackageCheck },
 ];
 
-export function OrderStatusBadge({ status }: { status: Status }) {
+const PICKUP_FLOW: typeof FLOW = FLOW.map((s) =>
+  s.status === "delivering"
+    ? { ...s, label: "Chờ bạn đến lấy", detail: "Món đã xong — mời bạn đến quán nhận", icon: Store }
+    : s.status === "completed"
+      ? { ...s, detail: "Bạn đã nhận món tại quán. Chúc bạn ngon miệng!" }
+      : s,
+);
+
+export function OrderStatusBadge({ status, deliveryMethod }: { status: Status; deliveryMethod?: DeliveryMethod }) {
   const tone =
     status === "cancelled"
       ? "bg-error-container text-on-error-container"
@@ -57,7 +71,7 @@ export function OrderStatusBadge({ status }: { status: Status }) {
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-label-md ${tone}`}>
       <span aria-hidden="true" className={`size-2 rounded-full ${statusDotClass(status)}`} />
-      {STATUS_LABEL[status]}
+      {statusLabel(status, deliveryMethod)}
     </span>
   );
 }
@@ -79,8 +93,10 @@ export function OrderTimeline({
   cancelledAt,
   cancelReason,
   paymentStatus,
+  deliveryMethod = "delivery",
 }: {
   status: Status;
+  deliveryMethod?: DeliveryMethod;
   createdAt: string;
   completedAt: string | null;
   cancelledAt: string | null;
@@ -110,15 +126,16 @@ export function OrderTimeline({
     );
   }
 
-  const currentIndex = FLOW.findIndex((s) => s.status === status);
+  const flow = deliveryMethod === "pickup" ? PICKUP_FLOW : FLOW;
+  const currentIndex = flow.findIndex((s) => s.status === status);
 
   return (
     <ol className="flex flex-col">
-      {FLOW.map((step, index) => {
+      {flow.map((step, index) => {
         const done = index < currentIndex;
         const active = index === currentIndex;
         const Icon = step.icon;
-        const last = index === FLOW.length - 1;
+        const last = index === flow.length - 1;
 
         // Chỉ có 2 mốc thời gian thật trong DB: lúc tạo đơn và lúc hoàn tất.
         const time =
