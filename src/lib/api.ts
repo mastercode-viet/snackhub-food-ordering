@@ -58,9 +58,10 @@ export function applyDiscount(code: string, subtotal: number): Promise<DiscountP
 
 export type CreateOrderPayload = {
   customer_name: string;
-  customer_phone: string;
-  delivery_method: "delivery" | "pickup";
-  /** Bắt buộc khi giao tận nơi, bỏ trống khi nhận tại quán. */
+  /** Bắt buộc khi giao tận nơi, bỏ trống khi đặt tại quầy. */
+  customer_phone?: string;
+  delivery_method: "delivery" | "in_store";
+  /** Bắt buộc khi giao tận nơi, bỏ trống khi đặt tại quầy. */
   building?: string;
   delivery_note?: string;
   payment_method: "cod" | "payos";

@@ -86,8 +86,9 @@ export type OrderView = {
   payment_method: Tables<"orders">["payment_method"];
   payment_status: Tables<"orders">["payment_status"];
   customer_name: string;
-  customer_phone: string;
-  /** null với đơn nhận tại quán. */
+  /** null với đơn tại quầy. */
+  customer_phone: string | null;
+  /** null với đơn tại quầy. */
   building: string | null;
   delivery_method: Tables<"orders">["delivery_method"];
   floor: string | null;

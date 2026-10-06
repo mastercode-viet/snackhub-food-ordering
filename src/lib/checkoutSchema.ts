@@ -36,12 +36,13 @@ const freeText = (max: number) =>
  * Lưu ý: schema phía Edge Function đang lỏng hơn ở số điện thoại
  * (`^0[0-9]{8,10}$`). Nó vẫn chặn rác, chỉ không bắt được đầu số không tồn tại.
  */
-export const DELIVERY_METHODS = ["delivery", "pickup"] as const;
+/** "in_store" = khách tự đặt tại quầy qua mã QR (?mode=in_store). */
+export const DELIVERY_METHODS = ["delivery", "in_store"] as const;
 
 export const checkoutSchema = z
   .object({
-    /** Bắt buộc — giao tận nơi hay khách tự đến quán lấy. */
-    delivery_method: z.enum(DELIVERY_METHODS, { message: "Chọn giao tận nơi hoặc nhận tại quán" }),
+    /** Bắt buộc — giao tận nơi hay đặt tại quầy (lấy từ chế độ của phiên, không phải khách chọn). */
+    delivery_method: z.enum(DELIVERY_METHODS, { message: "Thiếu hình thức đặt hàng" }),
 
     customer_name: z
       .string()
@@ -50,13 +51,14 @@ export const checkoutSchema = z
       .max(50, "Tên quá dài")
       .regex(/^[\p{L}\s'.-]+$/u, "Tên chỉ gồm chữ cái, dấu cách và dấu nối"),
 
-    customer_phone: z
-      .string()
-      .trim()
-      .regex(VN_PHONE_PATTERN, "Số di động Việt Nam gồm 10 số, ví dụ 0912345678"),
+    // Đơn tại quầy không hỏi số; đơn giao hàng bắt buộc (kiểm ở superRefine).
+    customer_phone: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().trim().regex(VN_PHONE_PATTERN, "Số di động Việt Nam gồm 10 số, ví dụ 0912345678").optional(),
+    ),
 
     // Chỉ bắt buộc khi giao tận nơi — kiểm ở superRefine bên dưới.
-    // "" (profile cũ chưa chọn toà) coi như chưa chọn, để đơn nhận tại quán không bị báo lỗi oan.
+    // "" (profile cũ chưa chọn toà) coi như chưa chọn, để đơn tại quầy không bị báo lỗi oan.
     building: z.preprocess(
       (v) => (v === "" ? undefined : v),
       z.enum(BUILDINGS, { message: "Vui lòng chọn toà" }).optional(),
@@ -68,8 +70,13 @@ export const checkoutSchema = z
     payment_method: z.enum(["cod", "payos"]),
   })
   .superRefine((v, ctx) => {
-    if (v.delivery_method === "delivery" && !v.building) {
+    // Đặt tại quầy: không validate thông tin giao hàng (toà, địa chỉ, số điện thoại).
+    if (v.delivery_method !== "delivery") return;
+    if (!v.building) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["building"], message: "Vui lòng chọn toà" });
+    }
+    if (!v.customer_phone) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customer_phone"], message: "Vui lòng nhập số điện thoại" });
     }
   });
 
@@ -82,7 +89,7 @@ export type CheckoutForm = z.infer<typeof checkoutSchema>;
  */
 export function composeDeliveryNote(form: CheckoutForm): string | undefined {
   const parts: string[] = [];
-  // Nhận tại quán thì không có địa chỉ giao — bỏ qua ô chi tiết địa chỉ dù còn chữ cũ.
+  // Tại quầy thì không có địa chỉ giao — bỏ qua ô chi tiết địa chỉ dù còn chữ cũ.
   if (form.address_detail && form.delivery_method === "delivery") parts.push(`Địa chỉ: ${form.address_detail}`);
   if (form.shop_note) parts.push(`Ghi chú: ${form.shop_note}`);
   return parts.length > 0 ? parts.join(" | ") : undefined;

@@ -31,12 +31,13 @@ import ErrorState from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/Skeleton";
 import Pagination from "@/components/admin/Pagination";
 import { formatDesiredTime, getDesiredDeliverySla, isAwaitingScheduled } from "@/lib/orderSla";
-import { PICKUP_GROUP, PICKUP_READY_LABEL, placeKey, placeLabel } from "@/lib/delivery";
+import { IN_STORE_GROUP, placeKey, placeLabel } from "@/lib/delivery";
 import {
   cancelOrderAsAdmin,
   fetchAdminOrders,
   fetchAdminOrdersPage,
   ORDERS_PAGE_SIZE,
+  completeInStoreOrder,
   markOrderPaid,
   setOrderStatus,
   type AdminOrder,
@@ -50,12 +51,7 @@ const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>>
   delivering: { status: "completed", label: "Hoàn tất đơn" },
 };
 
-/** Đơn nhận tại quán: bước giữa là "món xong, chờ khách tới lấy" thay vì "đi giao". */
-const PICKUP_NEXT: typeof NEXT = {
-  ...NEXT,
-  preparing: { status: "delivering", label: "Món xong · chờ khách lấy" },
-  delivering: { status: "completed", label: "Khách đã nhận món" },
-};
+
 
 type TabKey = OrderStatus | "all" | "sla_overdue" | "scheduled";
 
@@ -131,10 +127,9 @@ export function getOrderSla(
     };
   }
 
-  // Nhận tại quán: SLA chỉ đo lúc bếp làm món. Món xong ("Chờ khách lấy") thì
-  // dừng cảnh báo — khách đến trễ không phải lỗi của quán.
-  if (order.delivery_method === "pickup" && order.status === "delivering") {
-    return { elapsedMinutes, level: "normal", label: PICKUP_READY_LABEL };
+  // Tại quầy: khách đứng ngay quầy, không có giao hàng — tắt hẳn cảnh báo SLA.
+  if (order.delivery_method === "in_store") {
+    return { elapsedMinutes, level: "normal", label: "Tại quầy" };
   }
 
   // Đơn chưa hoàn tất:
@@ -248,10 +243,10 @@ export default function AdminOrdersPage() {
 
   // Danh sách toà nhà có đơn thật, để đổ vào <select> lọc — không bày sẵn
   // toà không ai đặt, và Superadmin biết ngay khu nào đang phát sinh đơn.
-  // Đơn nhận tại quán gom thành một "chỗ nhận" riêng, đứng cuối danh sách.
+  // Đơn tại quầy gom thành một "chỗ nhận" riêng, đứng cuối danh sách.
   const buildings = useMemo(() => {
     return [...new Set(orders.map(placeKey))].sort((a, b) =>
-      a === PICKUP_GROUP ? 1 : b === PICKUP_GROUP ? -1 : a.localeCompare(b, "vi"),
+      a === IN_STORE_GROUP ? 1 : b === IN_STORE_GROUP ? -1 : a.localeCompare(b, "vi"),
     );
   }, [orders]);
 
@@ -282,7 +277,7 @@ export default function AdminOrdersPage() {
           normalizeSearch(o.order_code).includes(q) ||
           (code.length >= 3 && compactCode(o.order_code).includes(code)) ||
           normalizeSearch(o.customer_name).includes(q) ||
-          o.customer_phone.includes(q),
+          (o.customer_phone ?? "").includes(q),
       );
     }
 
@@ -347,8 +342,8 @@ export default function AdminOrdersPage() {
             search: debouncedSearch,
             place:
               isAdmin && buildingFilter !== "all"
-                ? buildingFilter === PICKUP_GROUP
-                  ? "pickup"
+                ? buildingFilter === IN_STORE_GROUP
+                  ? "in_store"
                   : buildingFilter
                 : undefined,
           }).then((r) => ({ ...r, key: pageKey }))
@@ -380,7 +375,7 @@ export default function AdminOrdersPage() {
       map.set(key, group);
     }
     return [...map.entries()].sort((a, b) =>
-      a[0] === PICKUP_GROUP ? 1 : b[0] === PICKUP_GROUP ? -1 : a[0].localeCompare(b[0], "vi"),
+      a[0] === IN_STORE_GROUP ? 1 : b[0] === IN_STORE_GROUP ? -1 : a[0].localeCompare(b[0], "vi"),
     );
   }, [list, groupByBuilding]);
 
@@ -594,7 +589,7 @@ export default function AdminOrdersPage() {
             <option value="all">Tất cả toà nhà</option>
             {buildings.map((b) => (
               <option key={b} value={b}>
-                {b === PICKUP_GROUP ? PICKUP_GROUP : `Toà ${b}`}
+                {b === IN_STORE_GROUP ? IN_STORE_GROUP : `Toà ${b}`}
               </option>
             ))}
           </select>
@@ -656,7 +651,7 @@ export default function AdminOrdersPage() {
                     <div className="flex items-center gap-2 px-1 pb-1.5">
                       <Building2 size={14} strokeWidth={2.4} className="text-on-surface-variant" />
                       <p className="text-label-sm font-bold uppercase tracking-wide text-on-surface-variant">
-                        {building === PICKUP_GROUP ? PICKUP_GROUP : `Toà ${building}`}
+                        {building === IN_STORE_GROUP ? IN_STORE_GROUP : `Toà ${building}`}
                       </p>
                       <span className="rounded-full bg-surface-container px-1.5 py-0.2 text-label-xs text-on-surface-variant">
                         {buildingOrders.length}
@@ -736,7 +731,9 @@ function OrderPanel({
 }) {
   const { email, isAdmin, staffId } = useOutletContext<AdminOutletContext>();
   const [cancelling, setCancelling] = useState(false);
-  const next = (order.delivery_method === "pickup" ? PICKUP_NEXT : NEXT)[order.status];
+  // Đơn tại quầy không đi qua "Đang làm" / "Đang giao": chỉ một nút hoàn tất (xem bên dưới).
+  const inStore = order.delivery_method === "in_store";
+  const next = inStore ? undefined : NEXT[order.status];
   // Đơn VietQR chỉ được đẩy tới khi webhook đã xác nhận tiền về — tránh làm đồ
   // cho đơn chưa trả rồi mới phát hiện khách bỏ ngang.
   const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
@@ -820,17 +817,19 @@ function OrderPanel({
 
       <div className="rounded-card bg-surface-container-low p-3">
         <p className="text-label-md font-bold text-on-surface">{order.customer_name}</p>
-        <a
-          href={`tel:${order.customer_phone}`}
-          className="mt-0.5 inline-flex min-h-[44px] items-center gap-1.5 text-label-md font-semibold text-primary hover:underline"
-        >
-          <Phone size={14} strokeWidth={2.4} />
-          {order.customer_phone}
-        </a>
-        {order.delivery_method === "pickup" ? (
+        {order.customer_phone && (
+          <a
+            href={`tel:${order.customer_phone}`}
+            className="mt-0.5 inline-flex min-h-[44px] items-center gap-1.5 text-label-md font-semibold text-primary hover:underline"
+          >
+            <Phone size={14} strokeWidth={2.4} />
+            {order.customer_phone}
+          </a>
+        )}
+        {inStore ? (
           <p className="mt-1 inline-flex items-center gap-1.5 rounded-card bg-primary-fixed px-2.5 py-1 text-label-md font-semibold text-on-primary-fixed">
             <Store size={14} strokeWidth={2.4} />
-            Khách tự đến quán nhận — không giao
+            Khách đặt tại quầy — đối chiếu mã đơn khi giao món
           </p>
         ) : (
           <p className="text-body-sm text-on-surface-variant">
@@ -933,6 +932,37 @@ function OrderPanel({
       )}
 
       <div className="flex flex-col gap-2">
+        {/* Tại quầy: MỘT nút duy nhất. Tiền mặt → thu tiền + hoàn tất cùng lúc;
+            online → hoàn tất khi webhook đã xác nhận tiền về. */}
+        {inStore && !isFinished && (
+          <>
+            <button
+              type="button"
+              disabled={blockedUnpaidPayos}
+              onClick={() => {
+                const cash = order.payment_method === "cod" && order.payment_status !== "paid";
+                if (cash) {
+                  const ok = window.confirm(
+                    `Xác nhận đã nhận đủ ${formatVnd(order.total_amount)} tiền mặt và hoàn tất đơn ${order.order_code}?\n\nGhi nhận dưới tài khoản: ${email}`,
+                  );
+                  if (!ok) return;
+                }
+                void onRun(() => completeInStoreOrder(order.id, cash), `Đơn ${order.order_code}: Hoàn tất.`);
+              }}
+              className="min-h-[48px] rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+            >
+              {order.payment_method === "cod" && order.payment_status !== "paid"
+                ? `Thu ${formatVnd(order.total_amount)} tiền mặt & hoàn tất`
+                : "Hoàn tất đơn"}
+            </button>
+            {blockedUnpaidPayos && (
+              <p className="text-body-sm font-medium text-error">
+                Chưa nhận được tiền online — chờ khách thanh toán xong mới hoàn tất được.
+              </p>
+            )}
+          </>
+        )}
+
         {next && (
           <>
             <button
@@ -966,7 +996,7 @@ function OrderPanel({
             do trigger DB tự gắn auth.uid() của người gọi, không đọc từ client, nhưng
             người bấm phải thấy rõ mình đang xác nhận DƯỚI TÊN AI trước khi chốt số
             tiền, tránh bấm nhầm hộ ca trước/ca sau. */}
-        {order.payment_method === "cod" && order.payment_status !== "paid" && order.status !== "cancelled" && (
+        {!inStore && order.payment_method === "cod" && order.payment_status !== "paid" && order.status !== "cancelled" && (
           <>
             <button
               type="button"
@@ -1163,11 +1193,11 @@ function OrderRow({
           <span className="text-label-xs text-on-surface-variant">{formatTime(order.created_at)}</span>
         )}
 
-        {/* Loại đơn — luôn hiện để nhân viên biết đơn này đi giao hay để khách tới lấy. */}
-        {order.delivery_method === "pickup" ? (
+        {/* Loại đơn — luôn hiện để nhân viên biết đơn này đi giao hay khách đặt tại quầy. */}
+        {order.delivery_method === "in_store" ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-primary-fixed px-2.5 py-0.5 text-label-xs font-bold text-on-primary-fixed">
             <Store size={12} strokeWidth={2.4} />
-            Nhận tại quán
+            Tại quầy
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 rounded-full bg-secondary-fixed px-2.5 py-0.5 text-label-xs font-bold text-on-secondary-fixed">

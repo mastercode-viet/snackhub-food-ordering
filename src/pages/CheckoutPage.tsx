@@ -7,8 +7,6 @@ import Select from "@/components/checkout/Select";
 import PaymentMethods from "@/components/checkout/PaymentMethods";
 import DiscountBox from "@/components/checkout/DiscountBox";
 import TimeWheelPicker from "@/components/checkout/TimeWheelPicker";
-import DeliveryMethodToggle from "@/components/checkout/DeliveryMethodToggle";
-import { STORE_CONTACT } from "@/lib/contact";
 import { Toggle } from "@/components/admin/AdminForm";
 import { Skeleton } from "@/components/Skeleton";
 import { useStoreOpen, useStoreSettings } from "@/hooks/useMenu";
@@ -29,6 +27,7 @@ import {
 import { formatVnd } from "@/lib/format";
 import { useCartStore } from "@/store/cart";
 import { useProfileStore } from "@/store/profile";
+import { useIsInStore } from "@/store/orderMode";
 import { useRecentOrders } from "@/store/recentOrders";
 import { toast } from "@/store/toast";
 
@@ -40,17 +39,22 @@ export default function CheckoutPage() {
   const clearCart = useCartStore((s) => s.clear);
   const savedProfile = useProfileStore((s) => s.profile);
   const saveProfile = useProfileStore((s) => s.save);
-  const setDeliveryMethod = useProfileStore((s) => s.setDeliveryMethod);
   const rememberOrder = useRecentOrders((s) => s.remember);
 
   const settings = useStoreSettings();
   const storeOpen = useStoreOpen();
 
+  // Chế độ của phiên (?mode=in_store khi khách quét QR ở quầy) — khách không tự chọn.
+  const inStoreMode = useIsInStore();
   const [form, setForm] = useState<CheckoutForm>({
     ...savedProfile,
+    delivery_method: inStoreMode ? "in_store" : "delivery",
     building: savedProfile.building as CheckoutForm["building"],
     payment_method: PAYOS_ENABLED ? "payos" : "cod",
   });
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, delivery_method: inStoreMode ? "in_store" : "delivery" }));
+  }, [inStoreMode]);
   const [errors, setErrors] = useState<Partial<Record<keyof CheckoutForm, string>>>({});
   const [discount, setDiscount] = useState<DiscountPreview | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -92,7 +96,7 @@ export default function CheckoutPage() {
 
   /** Lỗi giờ hẹn — lớp chặn cuối, cùng quy tắc với server (bộ chọn đã lọc sẵn nên hiếm khi xảy ra). */
   function desiredTimeError(): string | null {
-    if (!scheduled || !hours) return null;
+    if (!scheduled || !hours || form.delivery_method === "in_store") return null;
     const res = desiredDeliverySchema(hours, new Date()).safeParse(desiredTime);
     return res.success ? null : res.error.issues[0].message;
   }
@@ -111,9 +115,9 @@ export default function CheckoutPage() {
 
   const count = items.reduce((n, i) => n + i.quantity, 0);
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-  // Nhận tại quán: không giao nên phí giao = 0 (server cũng tính lại y hệt).
-  const isPickup = form.delivery_method === "pickup";
-  const shippingFee = isPickup ? 0 : Number(settings.data?.shipping_fee ?? 0);
+  // Tại quầy: không giao nên phí giao = 0 (server cũng tính lại y hệt).
+  const inStore = form.delivery_method === "in_store";
+  const shippingFee = inStore ? 0 : Number(settings.data?.shipping_fee ?? 0);
   const discountAmount = discount?.discount_amount ?? 0;
   const total = Math.max(0, subtotal - discountAmount + shippingFee);
 
@@ -143,13 +147,14 @@ export default function CheckoutPage() {
     try {
       const result = await createOrder({
         customer_name: parsed.data.customer_name,
-        customer_phone: parsed.data.customer_phone,
+        // Tại quầy: không gửi số điện thoại / toà / giờ hẹn.
+        customer_phone: inStore ? undefined : parsed.data.customer_phone,
         delivery_method: parsed.data.delivery_method,
-        building: parsed.data.delivery_method === "pickup" ? undefined : parsed.data.building,
+        building: inStore ? undefined : parsed.data.building,
         delivery_note: composeDeliveryNote(parsed.data),
         payment_method: parsed.data.payment_method,
         discount_code: discount?.code,
-        desired_delivery_time: scheduled ? desiredTimeToDate(desiredTime).toISOString() : undefined,
+        desired_delivery_time: scheduled && !inStore ? desiredTimeToDate(desiredTime).toISOString() : undefined,
         items: items.map((i) =>
           i.kind === "combo"
             ? { kind: "combo" as const, combo_id: i.comboId, quantity: i.quantity, item_note: i.note ?? undefined }
@@ -168,10 +173,9 @@ export default function CheckoutPage() {
 
       // Nhớ địa chỉ cho lần sau, rồi dọn giỏ
       saveProfile({
-        delivery_method: parsed.data.delivery_method,
         customer_name: parsed.data.customer_name,
-        customer_phone: parsed.data.customer_phone,
-        // Nhận tại quán thì giữ toà lần trước, lần sau chuyển lại giao hàng khỏi chọn lại.
+        // Tại quầy không hỏi số/toà — giữ lại thông tin lần giao hàng trước.
+        customer_phone: parsed.data.customer_phone ?? savedProfile.customer_phone,
         building: parsed.data.building ?? savedProfile.building,
         address_detail: parsed.data.address_detail ?? "",
       });
@@ -182,8 +186,15 @@ export default function CheckoutPage() {
       rememberOrder(result.order_code);
 
       // PayOS: sang trang QR trong app, không đá sang trang PayOS nữa.
+      // (Đơn tại quầy: trả xong trang QR tự chuyển sang màn mã đơn.)
       if (result.payment_method === "payos") {
         navigate(`/thanh-toan/${result.order_code}`, { replace: true });
+        return;
+      }
+
+      // Tại quầy + tiền mặt: chỉ hiện mã đơn để khách đưa cho nhân viên, không theo dõi giao hàng.
+      if (inStore) {
+        navigate(`/tai-quay/${result.order_code}`, { replace: true });
         return;
       }
 
@@ -222,29 +233,11 @@ export default function CheckoutPage() {
       {/* Desktop: form bên trái, tóm tắt tiền và nút đặt hàng bên phải dạng sticky */}
       <div className="mx-auto w-full max-w-content px-margin-mobile pt-1 md:grid md:grid-cols-[minmax(0,1fr)_380px] md:items-start md:gap-gutter md:px-gutter">
         <div className="flex min-w-0 flex-col gap-3">
-        <DeliveryMethodToggle
-          value={form.delivery_method}
-          onChange={(v) => {
-            set("delivery_method", v);
-            setDeliveryMethod(v); // giữ đồng bộ với Giỏ hàng
-          }}
-        />
-
-        {isPickup ? (
-          <Card icon={<Store size={18} />} title="Nhận tại quán">
-            <p className="text-body-md text-on-surface">{STORE_CONTACT.address}</p>
-            <a
-              href={STORE_CONTACT.mapsUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex min-h-[44px] w-fit items-center gap-1.5 text-label-md font-semibold text-on-surface underline underline-offset-2"
-            >
-              <MapPin size={16} strokeWidth={2.2} />
-              Xem bản đồ
-            </a>
+        {inStore ? (
+          <Card icon={<Store size={18} />} title="Đặt tại quầy">
             <p className="flex items-start gap-1.5 rounded-card bg-secondary-fixed px-3 py-2 text-label-md text-on-secondary-fixed">
               <Info size={14} strokeWidth={2.2} aria-hidden="true" className="mt-0.5 shrink-0" />
-              <span>Miễn phí giao. Đến quầy đọc mã đơn để nhận món — quán báo khi món đã xong.</span>
+              <span>Không cần địa chỉ hay số điện thoại. Đặt xong, đưa mã đơn cho nhân viên tại quầy.</span>
             </p>
           </Card>
         ) : (
@@ -285,6 +278,7 @@ export default function CheckoutPage() {
             error={errors.customer_name}
             onChange={(e) => set("customer_name", e.target.value)}
           />
+          {!inStore && (
           <Field
             label="Số điện thoại"
             required
@@ -297,20 +291,14 @@ export default function CheckoutPage() {
             // Khách hay gõ "0912 345 678" hoặc "0912.345.678" — lọc luôn cho đỡ báo lỗi oan
             onChange={(e) => set("customer_phone", e.target.value.replace(/\D/g, ""))}
           />
+          )}
         </Card>
 
-        <Card icon={<AlarmClock size={18} />} title={isPickup ? "Giờ muốn lấy" : "Giờ muốn nhận"}>
+        {!inStore && (
+        <Card icon={<AlarmClock size={18} />} title="Giờ muốn nhận">
           <Toggle
-            label={isPickup ? "Hẹn giờ lấy" : "Hẹn giờ giao"}
-            hint={
-              isPickup
-                ? scheduled
-                  ? "Quán làm xong trước giờ bạn chọn"
-                  : "Đang tắt — quán làm ngay, xong là báo bạn"
-                : scheduled
-                  ? "Quán giao gần đúng giờ bạn chọn"
-                  : "Đang tắt — quán giao sớm nhất có thể"
-            }
+            label="Hẹn giờ giao"
+            hint={scheduled ? "Quán giao gần đúng giờ bạn chọn" : "Đang tắt — quán giao sớm nhất có thể"}
             on={scheduled}
             onChange={(on) => {
               setScheduled(on);
@@ -349,12 +337,13 @@ export default function CheckoutPage() {
                   </p>
                 ) : (
                   <p className="text-label-md text-on-surface-variant">
-                    {isPickup ? "Lấy" : "Giao"} lúc <strong className="text-on-surface">{desiredTime}</strong> hôm nay.
+                    Giao lúc <strong className="text-on-surface">{desiredTime}</strong> hôm nay.
                   </p>
                 )}
               </>
             ))}
         </Card>
+        )}
 
         <Card icon={<NotebookPen size={18} />} title="Ghi chú cho quán">
           <Field
@@ -381,7 +370,7 @@ export default function CheckoutPage() {
             value={form.payment_method}
             onChange={(v) => set("payment_method", v)}
             payosEnabled={PAYOS_ENABLED}
-            pickup={isPickup}
+            inStore={inStore}
           />
         </Card>
         </div>
@@ -391,7 +380,7 @@ export default function CheckoutPage() {
           <h2 className="mb-1 text-label-lg text-on-surface">Chi tiết thanh toán</h2>
           <Row label={`Tạm tính (${count} món)`} value={formatVnd(subtotal)} />
           <Row
-            label={isPickup ? "Phí giao (nhận tại quán)" : "Phí giao nội khu"}
+            label={inStore ? "Phí giao (đặt tại quầy)" : "Phí giao nội khu"}
             value={settings.loading ? null : shippingFee === 0 ? "Miễn phí" : formatVnd(shippingFee)}
           />
           {discount && (
@@ -422,7 +411,7 @@ export default function CheckoutPage() {
             <button
               type="button"
               onClick={submit}
-              disabled={submitting || closed || !!desiredError || (scheduled && slots.size === 0)}
+              disabled={submitting || closed || !!desiredError || (scheduled && !inStore && slots.size === 0)}
               className="flex h-14 w-full items-center justify-between rounded-full bg-primary px-5 text-on-primary shadow-cta-lg transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none disabled:active:scale-100"
             >
               <span className="text-label-lg font-bold">

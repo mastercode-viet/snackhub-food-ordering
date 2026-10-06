@@ -11,8 +11,7 @@ import { useCartSync } from "@/hooks/useCartSync";
 import { useStoreOpen, useStoreSettings } from "@/hooks/useMenu";
 import { formatVnd } from "@/lib/format";
 import { useCartStore } from "@/store/cart";
-import { useProfileStore } from "@/store/profile";
-import DeliveryMethodToggle from "@/components/checkout/DeliveryMethodToggle";
+import { useIsInStore } from "@/store/orderMode";
 
 export default function CartPage() {
   const navigate = useNavigate();
@@ -30,11 +29,9 @@ export default function CartPage() {
 
   const count = items.reduce((n, i) => n + i.quantity, 0);
   const subtotal = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
-  const deliveryMethod = useProfileStore((s) => s.profile.delivery_method);
-  const setDeliveryMethod = useProfileStore((s) => s.setDeliveryMethod);
-  const isPickup = deliveryMethod === "pickup";
-  // Nhận tại quán: phí giao = 0 (cùng quy tắc với Thanh toán và create-order).
-  const shippingFee = isPickup ? 0 : Number(settings.data?.shipping_fee ?? 0);
+  // Đặt tại quầy (?mode=in_store): phí giao = 0 (cùng quy tắc với Thanh toán và create-order).
+  const inStore = useIsInStore();
+  const shippingFee = inStore ? 0 : Number(settings.data?.shipping_fee ?? 0);
   const minOrder = Number(settings.data?.min_order_amount ?? 0);
   const total = subtotal + shippingFee;
 
@@ -164,12 +161,10 @@ export default function CartPage() {
             <div className="flex flex-col gap-3 rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
               <h2 className="text-headline-sm font-bold text-on-surface">Chi tiết thanh toán</h2>
 
-              <DeliveryMethodToggle value={deliveryMethod} onChange={setDeliveryMethod} />
-
               <div className="flex flex-col gap-2">
                 <Row label={`Tạm tính (${count} món)`} value={formatVnd(subtotal)} />
                 <Row
-                  label={isPickup ? "Phí giao (nhận tại quán)" : "Phí giao nội khu"}
+                  label={inStore ? "Phí giao (đặt tại quầy)" : "Phí giao nội khu"}
                   value={
                     settings.loading ? null : shippingFee === 0 ? "Miễn phí" : formatVnd(shippingFee)
                   }

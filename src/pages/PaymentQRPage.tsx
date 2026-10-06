@@ -32,12 +32,14 @@ export default function PaymentQRPage() {
    * trị này ngoài chu kỳ render.
    */
   const settled = useRef(false);
+  // Đơn tại quầy (QR ở quầy): trả xong chỉ cần hiện mã đơn, không theo dõi giao hàng.
+  const inStoreRef = useRef(false);
 
   const goPaid = useCallback(() => {
     if (settled.current) return;
     settled.current = true;
     toast.success("Đã nhận được thanh toán!");
-    navigate(`/don-hang/${orderCode}`, { replace: true });
+    navigate(inStoreRef.current ? `/tai-quay/${orderCode}` : `/don-hang/${orderCode}`, { replace: true });
   }, [navigate, orderCode]);
 
   // ── Tải đơn + chặn vào nhầm trạng thái ────────────────────────────────────
@@ -47,10 +49,12 @@ export default function PaymentQRPage() {
     fetchOrderByCode(orderCode)
       .then((o) => {
         if (!alive) return;
+        inStoreRef.current = o.delivery_method === "in_store";
         if (o.payment_method !== "payos" || o.payment_status !== "pending") {
           // Đã trả xong / đơn COD / đơn đã huỷ: trang QR không còn nghĩa lý gì.
           settled.current = true;
-          navigate(`/don-hang/${orderCode}`, { replace: true });
+          const paidInStore = inStoreRef.current && o.status !== "cancelled";
+          navigate(paidInStore ? `/tai-quay/${orderCode}` : `/don-hang/${orderCode}`, { replace: true });
           return;
         }
         setOrder(o);

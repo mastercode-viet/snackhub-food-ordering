@@ -11,6 +11,7 @@ import ProductDetailPage from "@/pages/ProductDetailPage";
 import ComboDetailPage from "@/pages/ComboDetailPage";
 import CheckoutPage from "@/pages/CheckoutPage";
 import OrderTrackingPage from "@/pages/OrderTrackingPage";
+import InStoreOrderPage from "@/pages/InStoreOrderPage";
 import PaymentQRPage from "@/pages/PaymentQRPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
@@ -52,6 +53,7 @@ const router = createBrowserRouter([
       { path: "/dat-hang", element: <CheckoutPage /> },
       { path: "/thanh-toan/:orderCode", element: <PaymentQRPage /> },
       { path: "/don-hang/:orderCode", element: <OrderTrackingPage /> },
+      { path: "/tai-quay/:orderCode", element: <InStoreOrderPage /> },
 
       {
         path: "/admin",

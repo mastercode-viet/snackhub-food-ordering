@@ -1,5 +1,6 @@
 import { Outlet } from "react-router-dom";
 import BottomNav from "@/components/BottomNav";
+import InStoreBanner from "@/components/InStoreBanner";
 
 /**
  * Khung 4 tab chính. Các màn hình toàn trang (chi tiết món, theo dõi đơn)
@@ -14,6 +15,7 @@ export default function AppLayout() {
     <div className="min-h-dvh bg-background">
       {/* pb-nav-gap chừa chỗ cho thanh nav nổi, tránh che nội dung cuối trang */}
       <main className="mx-auto w-full max-w-content pb-nav-gap md:pb-12 md:pt-20">
+        <InStoreBanner />
         <Outlet />
       </main>
       <BottomNav />

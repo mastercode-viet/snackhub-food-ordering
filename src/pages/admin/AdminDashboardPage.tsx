@@ -105,9 +105,9 @@ export default function AdminDashboardPage() {
         payosRevenue: acc.payosRevenue + d.payos_revenue,
         slaBreached: acc.slaBreached + d.sla_breached_orders,
         deliveryOrders: acc.deliveryOrders + d.delivery_orders,
-        pickupOrders: acc.pickupOrders + d.pickup_orders,
+        inStoreOrders: acc.inStoreOrders + d.in_store_orders,
         deliveryRevenue: acc.deliveryRevenue + d.delivery_revenue,
-        pickupRevenue: acc.pickupRevenue + d.pickup_revenue,
+        inStoreRevenue: acc.inStoreRevenue + d.in_store_revenue,
       }),
       {
         orders: 0,
@@ -118,15 +118,15 @@ export default function AdminDashboardPage() {
         payosRevenue: 0,
         slaBreached: 0,
         deliveryOrders: 0,
-        pickupOrders: 0,
+        inStoreOrders: 0,
         deliveryRevenue: 0,
-        pickupRevenue: 0,
+        inStoreRevenue: 0,
       },
     );
   }, [daily]);
 
   const avgOrder = totals.completed > 0 ? Math.round(totals.revenue / totals.completed) : 0;
-  // SLA chỉ đo đơn giao tận nơi (đơn nhận tại quán bị kéo dài bởi lúc khách tới lấy).
+  // SLA chỉ đo đơn giao tận nơi (đơn tại quầy không có cảnh báo SLA).
   const slaRate = totals.deliveryOrders > 0 ? Math.round((totals.slaBreached / totals.deliveryOrders) * 100) : 0;
 
   return (
@@ -183,8 +183,8 @@ export default function AdminDashboardPage() {
           <div className="grid gap-space-lg lg:grid-cols-2">
             <PaymentSplitDonut cod={totals.codRevenue} payos={totals.payosRevenue} />
             <DeliverySplitCard
-              orders={{ delivery: totals.deliveryOrders, pickup: totals.pickupOrders }}
-              revenue={{ delivery: totals.deliveryRevenue, pickup: totals.pickupRevenue }}
+              orders={{ delivery: totals.deliveryOrders, inStore: totals.inStoreOrders }}
+              revenue={{ delivery: totals.deliveryRevenue, inStore: totals.inStoreRevenue }}
             />
           </div>
 
@@ -375,30 +375,30 @@ function RevenueTooltip({ active, payload }: TooltipContentProps) {
 
 const DELIVERY_COLORS = {
   delivery: "rgb(var(--color-secondary))",
-  pickup: "rgb(var(--color-tertiary))",
+  inStore: "rgb(var(--color-tertiary))",
 };
 
-/** Tỷ trọng "Giao tận nơi" / "Nhận tại quán" — xem theo doanh thu hoặc theo số đơn hoàn tất. */
+/** Tỷ trọng "Giao tận nơi" / "Tại quầy" — xem theo doanh thu hoặc theo số đơn hoàn tất. */
 function DeliverySplitCard({
   orders,
   revenue,
 }: {
-  orders: { delivery: number; pickup: number };
-  revenue: { delivery: number; pickup: number };
+  orders: { delivery: number; inStore: number };
+  revenue: { delivery: number; inStore: number };
 }) {
   const [metric, setMetric] = useState<"revenue" | "orders">("revenue");
   const src = metric === "revenue" ? revenue : orders;
-  const total = src.delivery + src.pickup;
+  const total = src.delivery + src.inStore;
   const fmt = (v: number) => (metric === "revenue" ? formatVnd(v) : `${v} đơn`);
   const data = [
     { name: "Giao tận nơi", value: src.delivery, color: DELIVERY_COLORS.delivery },
-    { name: "Nhận tại quán", value: src.pickup, color: DELIVERY_COLORS.pickup },
+    { name: "Tại quầy", value: src.inStore, color: DELIVERY_COLORS.inStore },
   ];
 
   return (
     <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-label-lg text-on-surface">Giao tận nơi / Nhận tại quán</h2>
+        <h2 className="text-label-lg text-on-surface">Giao tận nơi / Tại quầy</h2>
         <div className="flex gap-1 rounded-card bg-surface-container p-1">
           {(["revenue", "orders"] as const).map((m) => (
             <button

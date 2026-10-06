@@ -16,9 +16,10 @@ export const STATUS_LABEL: Record<Status, string> = {
 };
 
 /** Thứ tự trình bày: 4 bước theo luồng, "đã huỷ" nằm ngoài luồng nên xếp cuối. */
-/** Đơn nhận tại quán: bước 'delivering' nghĩa là món đã xong, chờ khách tới lấy. */
+/** Đơn tại quầy chỉ có 2 bước: chờ quầy xác nhận → hoàn tất (không làm/giao riêng). */
 export function statusLabel(status: Status, method: DeliveryMethod = "delivery"): string {
-  return method === "pickup" && status === "delivering" ? "Chờ khách lấy" : STATUS_LABEL[status];
+  if (method === "in_store" && status === "pending_confirmation") return "Chờ tại quầy";
+  return STATUS_LABEL[status];
 }
 
 export const STATUS_ORDER = [
@@ -52,13 +53,15 @@ const FLOW: Array<{ status: Status; label: string; detail: string; icon: typeof 
   { status: "completed", label: "Hoàn tất", detail: "Đơn đã giao xong. Chúc bạn ngon miệng!", icon: PackageCheck },
 ];
 
-const PICKUP_FLOW: typeof FLOW = FLOW.map((s) =>
-  s.status === "delivering"
-    ? { ...s, label: "Chờ bạn đến lấy", detail: "Món đã xong — mời bạn đến quán nhận", icon: Store }
-    : s.status === "completed"
-      ? { ...s, detail: "Bạn đã nhận món tại quán. Chúc bạn ngon miệng!" }
-      : s,
-);
+const IN_STORE_FLOW: typeof FLOW = [
+  {
+    status: "pending_confirmation",
+    label: "Chờ tại quầy",
+    detail: "Đưa mã đơn cho nhân viên tại quầy",
+    icon: Store,
+  },
+  { status: "completed", label: "Hoàn tất", detail: "Bạn đã nhận món tại quầy. Chúc bạn ngon miệng!", icon: PackageCheck },
+];
 
 export function OrderStatusBadge({ status, deliveryMethod }: { status: Status; deliveryMethod?: DeliveryMethod }) {
   const tone =
@@ -126,7 +129,7 @@ export function OrderTimeline({
     );
   }
 
-  const flow = deliveryMethod === "pickup" ? PICKUP_FLOW : FLOW;
+  const flow = deliveryMethod === "in_store" ? IN_STORE_FLOW : FLOW;
   const currentIndex = flow.findIndex((s) => s.status === status);
 
   return (

@@ -201,7 +201,7 @@ export default function OrderTrackingPage() {
     .filter(Boolean)
     .join(" · ");
 
-  const isPickup = order.delivery_method === "pickup";
+  const isInStore = order.delivery_method === "in_store";
   const waitingPayment = order.payment_method === "payos" && order.payment_status === "pending";
 
   return (
@@ -286,8 +286,8 @@ export default function OrderTrackingPage() {
                   ? "Bạn đã hẹn nhận lúc"
                   : order.status === "cancelled"
                     ? "Giờ đã hẹn"
-                    : order.delivery_method === "pickup"
-                      ? "Hẹn bạn đến lấy lúc"
+                    : order.delivery_method === "in_store"
+                      ? "Hẹn lúc"
                       : "Quán sẽ giao lúc"}
               </p>
               <p className="text-headline-lg">{formatDesiredTime(order.desired_delivery_time)}</p>
@@ -323,14 +323,14 @@ export default function OrderTrackingPage() {
 
         <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
           <div className="mb-3 flex items-center gap-2">
-            {isPickup ? (
+            {isInStore ? (
               <Store size={18} className="text-secondary" strokeWidth={2.4} />
             ) : (
               <MapPin size={18} className="text-secondary" strokeWidth={2.4} />
             )}
-            <h2 className="text-headline-sm font-bold text-on-surface">{isPickup ? "Nhận tại quán" : "Giao đến"}</h2>
+            <h2 className="text-headline-sm font-bold text-on-surface">{isInStore ? "Đặt tại quầy" : "Giao đến"}</h2>
           </div>
-          {isPickup ? (
+          {isInStore ? (
             <>
               <p className="text-label-lg font-bold text-on-surface">{STORE_CONTACT.address}</p>
               <a
@@ -347,7 +347,7 @@ export default function OrderTrackingPage() {
             <p className="text-label-lg font-bold text-on-surface">{address}</p>
           )}
           <p className="mt-0.5 text-body-md text-on-surface-variant font-medium">
-            {order.customer_name} · {order.customer_phone}
+            {[order.customer_name, order.customer_phone].filter(Boolean).join(" · ")}
           </p>
           {order.delivery_note && (
             <p className="mt-2.5 rounded-card bg-surface-container-low/80 px-3.5 py-2.5 text-body-sm text-on-surface-variant border border-outline-variant/40">

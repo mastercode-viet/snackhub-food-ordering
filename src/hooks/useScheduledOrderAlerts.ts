@@ -12,7 +12,7 @@ export type ScheduledAlert = {
   orderId: string;
   orderCode: string;
   customerName: string;
-  /** "Toà A" | "Nhận tại quán" */
+  /** "Toà A" | "Tại quầy" */
   place: string;
   desiredAt: string;
   level: Exclude<DesiredLevel, "normal">;

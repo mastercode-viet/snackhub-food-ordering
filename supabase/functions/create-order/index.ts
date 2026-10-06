@@ -78,9 +78,13 @@ Deno.serve(async (req) => {
       );
     }
     const input = parsed.data;
+    // Đặt tại quầy qua QR: không giao, không SĐT, không hẹn giờ.
+    const isInStore = input.delivery_method === "in_store";
 
     // Rate limit theo số điện thoại — sau validate để chắc chắn số hợp lệ.
+    // Đơn tại quầy không có số nên chỉ còn lớp giới hạn theo IP.
     if (
+      input.customer_phone &&
       !(await withinRateLimit(
         db,
         await phoneKey(input.customer_phone),
@@ -102,10 +106,11 @@ Deno.serve(async (req) => {
       return fail("STORE_CLOSED", "Quán chỉ nhận đơn từ 6:00 đến 18:00. Hẹn bạn quay lại nhé!", 409, origin);
     }
 
-    // Giờ muốn nhận (tuỳ chọn): sau giờ đặt, trong hôm nay, trong giờ mở cửa.
-    if (input.desired_delivery_time) {
+    // Giờ muốn nhận (tuỳ chọn, chỉ đơn giao hàng): sau giờ đặt, trong hôm nay, trong giờ mở cửa.
+    const desiredTime = isInStore ? null : (input.desired_delivery_time ?? null);
+    if (desiredTime) {
       const { data: validTime, error: timeErr } = await db.rpc("is_valid_desired_delivery_time", {
-        p_at: input.desired_delivery_time,
+        p_at: desiredTime,
       });
       if (timeErr) throw timeErr;
       if (validTime !== true) {
@@ -159,9 +164,8 @@ Deno.serve(async (req) => {
       discountCode = data!.discount_code;
     }
 
-    // Nhận tại quán: không giao nên không thu phí giao.
-    const isPickup = input.delivery_method === "pickup";
-    const shippingFee = isPickup ? 0 : Number(settings.shipping_fee);
+    // Tại quầy: không giao nên không thu phí giao.
+    const shippingFee = isInStore ? 0 : Number(settings.shipping_fee);
     const totalAmount = Math.max(0, subtotal - discountAmount + shippingFee);
 
     // ── 6. Ghi đơn. order_code do trigger DB sinh ngẫu nhiên. ───────────────
@@ -173,11 +177,11 @@ Deno.serve(async (req) => {
         payment_method: input.payment_method,
         payment_status: input.payment_method === "payos" ? "pending" : "unpaid",
         customer_name: input.customer_name,
-        customer_phone: input.customer_phone,
+        customer_phone: isInStore ? null : input.customer_phone,
         delivery_method: input.delivery_method,
-        building: isPickup ? null : input.building,
+        building: isInStore ? null : input.building,
         delivery_note: input.delivery_note ?? null,
-        desired_delivery_time: input.desired_delivery_time ?? null,
+        desired_delivery_time: desiredTime,
         subtotal,
         discount_amount: discountAmount,
         shipping_fee: shippingFee,
@@ -205,15 +209,17 @@ Deno.serve(async (req) => {
 
     // ── 7. PayOS: tạo link thanh toán ──────────────────────────────────────
     if (input.payment_method === "payos") {
+      // Đơn tại quầy trả xong chỉ cần màn mã đơn, không cần trang theo dõi giao hàng.
+      const donePath = isInStore ? "tai-quay" : "don-hang";
       try {
         const link = await createPaymentLink({
           orderCode: payosOrderCode!,
           amount: Math.round(totalAmount),
           description: order.order_code, // 13 ký tự, dưới giới hạn 25 của PayOS
-          returnUrl: `${Deno.env.get("PUBLIC_SITE_URL")}/don-hang/${order.order_code}`,
+          returnUrl: `${Deno.env.get("PUBLIC_SITE_URL")}/${donePath}/${order.order_code}`,
           cancelUrl: `${Deno.env.get("PUBLIC_SITE_URL")}/don-hang/${order.order_code}?huy=1`,
           buyerName: input.customer_name,
-          buyerPhone: input.customer_phone,
+          buyerPhone: input.customer_phone ?? undefined,
           // pg_cron cũng tự hủy đơn treo sau 15 phút — đây là lớp chặn thứ hai.
           expiredAt: Math.floor(Date.now() / 1000) + 15 * 60,
         });

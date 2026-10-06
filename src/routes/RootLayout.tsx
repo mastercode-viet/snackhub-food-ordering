@@ -1,5 +1,6 @@
 import { Outlet, ScrollRestoration } from "react-router-dom";
 import ToastHost from "@/components/ui/Toast";
+import { useOrderModeFromUrl } from "@/store/orderMode";
 
 /**
  * Bọc ngoài cùng mọi route.
@@ -9,6 +10,8 @@ import ToastHost from "@/components/ui/Toast";
  * hiển thị được thông báo.
  */
 export default function RootLayout() {
+  // ?mode=in_store (mã QR dán ở quầy) → cả phiên đặt hàng ở chế độ tại quầy.
+  useOrderModeFromUrl();
   return (
     <>
       <Outlet />

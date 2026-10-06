@@ -325,7 +325,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           customer_name: string
-          customer_phone: string
+          customer_phone: string | null
           delivery_method: Database["public"]["Enums"]["delivery_method"]
           delivery_note: string | null
           desired_delivery_time: string | null
@@ -361,7 +361,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           customer_name: string
-          customer_phone: string
+          customer_phone?: string | null
           delivery_method?: Database["public"]["Enums"]["delivery_method"]
           delivery_note?: string | null
           desired_delivery_time?: string | null
@@ -397,7 +397,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           customer_name?: string
-          customer_phone?: string
+          customer_phone?: string | null
           delivery_method?: Database["public"]["Enums"]["delivery_method"]
           delivery_note?: string | null
           desired_delivery_time?: string | null
@@ -1112,8 +1112,8 @@ export type Database = {
           delivery_orders: number | null
           delivery_revenue: number | null
           payos_revenue: number | null
-          pickup_orders: number | null
-          pickup_revenue: number | null
+          in_store_orders: number | null
+          in_store_revenue: number | null
           revenue: number | null
           sla_breached_orders: number | null
           total_discount: number | null
@@ -1310,7 +1310,7 @@ export type Database = {
     }
     Enums: {
       cancelled_by: "customer" | "admin" | "system"
-      delivery_method: "delivery" | "pickup"
+      delivery_method: "delivery" | "in_store"
       discount_type: "percent" | "fixed"
       order_status:
         | "pending_confirmation"
@@ -1451,7 +1451,7 @@ export const Constants = {
   public: {
     Enums: {
       cancelled_by: ["customer", "admin", "system"],
-      delivery_method: ["delivery", "pickup"],
+      delivery_method: ["delivery", "in_store"],
       discount_type: ["percent", "fixed"],
       order_status: [
         "pending_confirmation",

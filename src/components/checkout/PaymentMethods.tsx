@@ -13,13 +13,13 @@ export default function PaymentMethods({
   value,
   onChange,
   payosEnabled,
-  pickup = false,
+  inStore = false,
 }: {
   value: "cod" | "payos";
   onChange: (v: "cod" | "payos") => void;
   payosEnabled: boolean;
-  /** Nhận tại quán: COD đổi thành "Thanh toán tại quầy". PayOS giữ nguyên. */
-  pickup?: boolean;
+  /** Đặt tại quầy: chỉ 2 lựa chọn "Thanh toán Online" và "Tiền mặt" (đổi nhãn từ COD). */
+  inStore?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2.5" role="radiogroup" aria-label="Phương thức thanh toán">
@@ -28,7 +28,7 @@ export default function PaymentMethods({
         disabled={!payosEnabled}
         onSelect={() => onChange("payos")}
         icon={<QrCode size={20} strokeWidth={2.2} />}
-        title="Chuyển khoản VietQR"
+        title={inStore ? "Thanh toán Online" : "Chuyển khoản VietQR"}
         subtitle={payosEnabled ? "Quét mã bằng app ngân hàng, xác nhận tự động" : "Sắp có — quán đang kết nối cổng thanh toán"}
         badge={payosEnabled ? "Khuyên dùng" : "Sắp có"}
       />
@@ -37,8 +37,8 @@ export default function PaymentMethods({
         active={value === "cod"}
         onSelect={() => onChange("cod")}
         icon={<Banknote size={20} strokeWidth={2.2} />}
-        title={pickup ? "Thanh toán tại quầy" : "Thanh toán khi nhận hàng"}
-        subtitle={pickup ? "Trả tiền khi đến quán nhận món" : "Trả tiền mặt khi quán giao món tới nơi"}
+        title={inStore ? "Tiền mặt" : "Thanh toán khi nhận hàng"}
+        subtitle={inStore ? "Trả tiền mặt cho nhân viên tại quầy" : "Trả tiền mặt khi quán giao món tới nơi"}
       />
     </div>
   );

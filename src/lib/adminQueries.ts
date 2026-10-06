@@ -224,7 +224,7 @@ export async function fetchAdminOrdersPage(opts: {
   page: number;
   status?: Tables<"orders">["status"];
   search?: string;
-  /** Toà ("A"…) hoặc "pickup" = chỉ đơn nhận tại quán. */
+  /** Toà ("A"…) hoặc "in_store" = chỉ đơn đặt tại quầy. */
   place?: string;
 }): Promise<{ rows: AdminOrder[]; total: number }> {
   const from = (opts.page - 1) * ORDERS_PAGE_SIZE;
@@ -235,7 +235,7 @@ export async function fetchAdminOrdersPage(opts: {
     .range(from, from + ORDERS_PAGE_SIZE - 1);
 
   if (opts.status) query = query.eq("status", opts.status);
-  if (opts.place === "pickup") query = query.eq("delivery_method", "pickup");
+  if (opts.place === "in_store") query = query.eq("delivery_method", "in_store");
   else if (opts.place) query = query.eq("building", opts.place);
 
   // Bỏ ký tự đặc biệt của cú pháp or() PostgREST (dấu phẩy, ngoặc, %, *).
@@ -292,6 +292,19 @@ export async function markOrderPaid(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Đơn "Tại quầy": hoàn tất trong MỘT lần cập nhật. Tiền mặt thì ghi nhận đã thu
+ * cùng lúc — trigger orders_stamp_status thấy payment_status = 'paid' ngay trong
+ * cùng UPDATE nên cho phép 'completed', và tự gắn collected_by_staff_id.
+ */
+export async function completeInStoreOrder(id: string, collectCash: boolean): Promise<void> {
+  const patch = collectCash
+    ? { status: "completed" as const, payment_status: "paid" as const }
+    : { status: "completed" as const };
+  const { error } = await supabase.from("orders").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
 // ── Thống kê ─────────────────────────────────────────────────────────────
 //
 // Hai view admin_daily_stats / admin_top_products khai security_invoker=true
@@ -311,9 +324,9 @@ export type DailyStat = {
   sla_breached_orders: number;
   /** Đơn hoàn tất + doanh thu theo hình thức nhận — tổng hai bên = completed_orders / revenue. */
   delivery_orders: number;
-  pickup_orders: number;
+  in_store_orders: number;
   delivery_revenue: number;
-  pickup_revenue: number;
+  in_store_revenue: number;
 };
 
 export type TopProduct = { product_name: string; quantity: number; revenue: number };
@@ -338,9 +351,9 @@ const EMPTY_DAY = {
   payos_revenue: 0,
   sla_breached_orders: 0,
   delivery_orders: 0,
-  pickup_orders: 0,
+  in_store_orders: 0,
   delivery_revenue: 0,
-  pickup_revenue: 0,
+  in_store_revenue: 0,
 };
 
 /**
@@ -376,9 +389,9 @@ export async function fetchDailyStats(from: string, to: string): Promise<DailySt
       payos_revenue: Number(r.payos_revenue),
       sla_breached_orders: Number(r.sla_breached_orders),
       delivery_orders: Number(r.delivery_orders),
-      pickup_orders: Number(r.pickup_orders),
+      in_store_orders: Number(r.in_store_orders),
       delivery_revenue: Number(r.delivery_revenue),
-      pickup_revenue: Number(r.pickup_revenue),
+      in_store_revenue: Number(r.in_store_revenue),
     });
   }
 
