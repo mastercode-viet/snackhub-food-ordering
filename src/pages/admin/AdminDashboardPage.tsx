@@ -104,6 +104,10 @@ export default function AdminDashboardPage() {
         codRevenue: acc.codRevenue + d.cod_revenue,
         payosRevenue: acc.payosRevenue + d.payos_revenue,
         slaBreached: acc.slaBreached + d.sla_breached_orders,
+        deliveryOrders: acc.deliveryOrders + d.delivery_orders,
+        pickupOrders: acc.pickupOrders + d.pickup_orders,
+        deliveryRevenue: acc.deliveryRevenue + d.delivery_revenue,
+        pickupRevenue: acc.pickupRevenue + d.pickup_revenue,
       }),
       {
         orders: 0,
@@ -113,12 +117,17 @@ export default function AdminDashboardPage() {
         codRevenue: 0,
         payosRevenue: 0,
         slaBreached: 0,
+        deliveryOrders: 0,
+        pickupOrders: 0,
+        deliveryRevenue: 0,
+        pickupRevenue: 0,
       },
     );
   }, [daily]);
 
   const avgOrder = totals.completed > 0 ? Math.round(totals.revenue / totals.completed) : 0;
-  const slaRate = totals.completed > 0 ? Math.round((totals.slaBreached / totals.completed) * 100) : 0;
+  // SLA chỉ đo đơn giao tận nơi (đơn nhận tại quán bị kéo dài bởi lúc khách tới lấy).
+  const slaRate = totals.deliveryOrders > 0 ? Math.round((totals.slaBreached / totals.deliveryOrders) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-space-lg">
@@ -165,7 +174,7 @@ export default function AdminDashboardPage() {
             <StatTile
               label="Tỷ lệ trễ SLA"
               value={`${slaRate}%`}
-              hint={totals.slaBreached > 0 ? `${totals.slaBreached} đơn trễ` : "Không có đơn trễ"}
+              hint={totals.slaBreached > 0 ? `${totals.slaBreached} đơn giao trễ` : "Không có đơn giao trễ"}
             />
           </div>
 
@@ -173,8 +182,13 @@ export default function AdminDashboardPage() {
 
           <div className="grid gap-space-lg lg:grid-cols-2">
             <PaymentSplitDonut cod={totals.codRevenue} payos={totals.payosRevenue} />
-            <BestSellersCard products={state.data!.top} combos={state.data!.combos} />
+            <DeliverySplitCard
+              orders={{ delivery: totals.deliveryOrders, pickup: totals.pickupOrders }}
+              revenue={{ delivery: totals.deliveryRevenue, pickup: totals.pickupRevenue }}
+            />
           </div>
+
+          <BestSellersCard products={state.data!.top} combos={state.data!.combos} />
 
           {/* Thống kê khách chỉ superadmin xem được (RPC tự chặn) — staff không thấy thẻ này. */}
           {isAdmin && <CustomerStatsCard from={rangeFrom} to={rangeTo} />}
@@ -356,6 +370,96 @@ function RevenueTooltip({ active, payload }: TooltipContentProps) {
       <p className="mt-0.5 font-medium">{formatVnd(d.revenue)}</p>
       <p className="text-inverse-on-surface/80">{d.completed_orders} đơn hoàn tất</p>
     </div>
+  );
+}
+
+const DELIVERY_COLORS = {
+  delivery: "rgb(var(--color-secondary))",
+  pickup: "rgb(var(--color-tertiary))",
+};
+
+/** Tỷ trọng "Giao tận nơi" / "Nhận tại quán" — xem theo doanh thu hoặc theo số đơn hoàn tất. */
+function DeliverySplitCard({
+  orders,
+  revenue,
+}: {
+  orders: { delivery: number; pickup: number };
+  revenue: { delivery: number; pickup: number };
+}) {
+  const [metric, setMetric] = useState<"revenue" | "orders">("revenue");
+  const src = metric === "revenue" ? revenue : orders;
+  const total = src.delivery + src.pickup;
+  const fmt = (v: number) => (metric === "revenue" ? formatVnd(v) : `${v} đơn`);
+  const data = [
+    { name: "Giao tận nơi", value: src.delivery, color: DELIVERY_COLORS.delivery },
+    { name: "Nhận tại quán", value: src.pickup, color: DELIVERY_COLORS.pickup },
+  ];
+
+  return (
+    <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-label-lg text-on-surface">Giao tận nơi / Nhận tại quán</h2>
+        <div className="flex gap-1 rounded-card bg-surface-container p-1">
+          {(["revenue", "orders"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMetric(m)}
+              className={`min-h-[36px] rounded-card-sm px-3 text-label-sm transition-colors ${
+                metric === m ? "bg-surface-container-lowest text-on-surface shadow-card" : "text-on-surface-variant"
+              }`}
+            >
+              {m === "revenue" ? "Doanh thu" : "Số đơn"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {total === 0 ? (
+        <EmptyState icon="🛵" title="Chưa có đơn hoàn tất" description="Chưa có đơn hoàn tất trong khoảng đang xem." />
+      ) : (
+        <div className="mt-space-md flex flex-col items-center gap-4 sm:flex-row">
+          <div className="relative h-44 w-44 shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={data} dataKey="value" nameKey="name" innerRadius="65%" outerRadius="100%" paddingAngle={2} stroke="none">
+                  {data.map((d) => (
+                    <Cell key={d.name} fill={d.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value) => fmt(Number(value))}
+                  contentStyle={{
+                    borderRadius: 12,
+                    border: "none",
+                    backgroundColor: "rgb(var(--color-inverse-surface))",
+                    color: "rgb(var(--color-inverse-on-surface))",
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <p className="text-label-sm text-on-surface-variant">Tổng</p>
+              <p className="text-label-md text-on-surface">{fmt(total)}</p>
+            </div>
+          </div>
+
+          <ul className="w-full flex-1 space-y-2">
+            {data.map((d) => (
+              <li key={d.name} className="flex items-center justify-between gap-2 text-body-sm">
+                <span className="flex items-center gap-2 text-on-surface-variant">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
+                  {d.name}
+                </span>
+                <span className="shrink-0 text-on-surface">
+                  {fmt(d.value)} · {Math.round((d.value / total) * 100)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -309,6 +309,11 @@ export type DailyStat = {
   cod_revenue: number;
   payos_revenue: number;
   sla_breached_orders: number;
+  /** Đơn hoàn tất + doanh thu theo hình thức nhận — tổng hai bên = completed_orders / revenue. */
+  delivery_orders: number;
+  pickup_orders: number;
+  delivery_revenue: number;
+  pickup_revenue: number;
 };
 
 export type TopProduct = { product_name: string; quantity: number; revenue: number };
@@ -332,6 +337,10 @@ const EMPTY_DAY = {
   cod_revenue: 0,
   payos_revenue: 0,
   sla_breached_orders: 0,
+  delivery_orders: 0,
+  pickup_orders: 0,
+  delivery_revenue: 0,
+  pickup_revenue: 0,
 };
 
 /**
@@ -366,6 +375,10 @@ export async function fetchDailyStats(from: string, to: string): Promise<DailySt
       cod_revenue: Number(r.cod_revenue),
       payos_revenue: Number(r.payos_revenue),
       sla_breached_orders: Number(r.sla_breached_orders),
+      delivery_orders: Number(r.delivery_orders),
+      pickup_orders: Number(r.pickup_orders),
+      delivery_revenue: Number(r.delivery_revenue),
+      pickup_revenue: Number(r.pickup_revenue),
     });
   }
 
