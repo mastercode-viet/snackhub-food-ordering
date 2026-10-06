@@ -5,7 +5,12 @@
 // quyết định được số tiền phải trả.
 
 import { adminClient, storeIsOpen, withinRateLimit } from "../_shared/supabase.ts";
-import { createOrderSchema, type CartItemInput } from "../_shared/schemas.ts";
+import {
+  allowedPaymentMethods,
+  createOrderSchema,
+  paymentNotAllowedMessage,
+  type CartItemInput,
+} from "../_shared/schemas.ts";
 import { clientKey, fail, isOriginAllowed, json, preflight } from "../_shared/http.ts";
 import { createPaymentLink, newPayosOrderCode } from "../_shared/payos.ts";
 
@@ -123,19 +128,32 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 4. Dựng giỏ hàng từ dữ liệu DB ─────────────────────────────────────
+    // ── 4. Phương thức thanh toán quán đang bật cho hình thức đặt này ───────
+    // Superadmin bật/tắt ở /admin/cai-dat; kiểm trước khi dựng giỏ / tiêu lượt mã giảm giá.
+    const { data: settings, error: settingsErr } = await db
+      .from("store_settings")
+      .select(
+        "shipping_fee, min_order_amount, delivery_payos_enabled, delivery_cod_enabled, in_store_payos_enabled, in_store_cod_enabled",
+      )
+      .eq("id", 1)
+      .single();
+    if (settingsErr) throw settingsErr;
+
+    if (!allowedPaymentMethods(settings, input.delivery_method)[input.payment_method]) {
+      return fail(
+        "PAYMENT_METHOD_NOT_ALLOWED",
+        paymentNotAllowedMessage(input.delivery_method, input.payment_method),
+        400,
+        origin,
+      );
+    }
+
+    // ── 5. Dựng giỏ hàng từ dữ liệu DB ─────────────────────────────────────
     const built = await buildItems(db, input.items);
     if ("error" in built) return fail(built.error, built.message, 400, origin);
     const items = built.items;
 
     const subtotal = items.reduce((s, i) => s + i.line_total, 0);
-
-    const { data: settings, error: settingsErr } = await db
-      .from("store_settings")
-      .select("shipping_fee, min_order_amount")
-      .eq("id", 1)
-      .single();
-    if (settingsErr) throw settingsErr;
 
     if (subtotal < Number(settings.min_order_amount)) {
       return fail(
@@ -146,7 +164,7 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── 5. Mã giảm giá: tiêu lượt bằng atomic update trong DB ───────────────
+    // ── 6. Mã giảm giá: tiêu lượt bằng atomic update trong DB ───────────────
     let discountAmount = 0;
     let discountCodeId: string | null = null;
     let discountCode: string | null = null;
@@ -168,7 +186,7 @@ Deno.serve(async (req) => {
     const shippingFee = isInStore ? 0 : Number(settings.shipping_fee);
     const totalAmount = Math.max(0, subtotal - discountAmount + shippingFee);
 
-    // ── 6. Ghi đơn. order_code do trigger DB sinh ngẫu nhiên. ───────────────
+    // ── 7. Ghi đơn. order_code do trigger DB sinh ngẫu nhiên. ───────────────
     const payosOrderCode = input.payment_method === "payos" ? newPayosOrderCode() : null;
 
     const { data: order, error: orderErr } = await db
@@ -207,7 +225,7 @@ Deno.serve(async (req) => {
       throw itemsErr;
     }
 
-    // ── 7. PayOS: tạo link thanh toán ──────────────────────────────────────
+    // ── 8. PayOS: tạo link thanh toán ──────────────────────────────────────
     if (input.payment_method === "payos") {
       // Đơn tại quầy trả xong chỉ cần màn mã đơn, không cần trang theo dõi giao hàng.
       const donePath = isInStore ? "tai-quay" : "don-hang";

@@ -25,6 +25,35 @@ export const phoneSchema = z
 export const BUILDINGS = ["A", "B", "Khuôn viên"] as const;
 
 /**
+ * Phương thức thanh toán quán đang bật cho từng hình thức đặt — 4 cột trong
+ * store_settings, superadmin bật/tắt ở /admin/cai-dat (mặc định: giao tận nơi
+ * chỉ PayOS, tại quầy PayOS + tiền mặt).
+ * PHẢI khớp với allowedPaymentMethods / paymentNotAllowedMessage trong src/lib/checkoutSchema.ts.
+ */
+export type PaymentSettings = {
+  delivery_payos_enabled: boolean;
+  delivery_cod_enabled: boolean;
+  in_store_payos_enabled: boolean;
+  in_store_cod_enabled: boolean;
+};
+
+export function allowedPaymentMethods(
+  s: PaymentSettings,
+  delivery: "delivery" | "in_store",
+): Record<"payos" | "cod", boolean> {
+  return delivery === "delivery"
+    ? { payos: s.delivery_payos_enabled, cod: s.delivery_cod_enabled }
+    : { payos: s.in_store_payos_enabled, cod: s.in_store_cod_enabled };
+}
+
+export function paymentNotAllowedMessage(delivery: "delivery" | "in_store", method: "payos" | "cod"): string {
+  const methodLabel =
+    method === "payos" ? "thanh toán online (VietQR)" : delivery === "delivery" ? "thanh toán khi nhận hàng" : "thanh toán tiền mặt";
+  const typeLabel = delivery === "delivery" ? "đơn giao tận nơi" : "đơn tại quầy";
+  return `Quán đang tạm tắt ${methodLabel} cho ${typeLabel}. Vui lòng chọn phương thức khác.`;
+}
+
+/**
  * Hai loại dòng giỏ hàng, phân biệt bằng `kind`:
  *   - "product": món lẻ, có thể có option tuỳ biến (như trước).
  *   - "combo": gói combo giá cố định, KHÔNG có option — món con và giá
