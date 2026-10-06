@@ -15,9 +15,9 @@
   - **Mã giảm giá (`/admin/khuyen-mai`):** cung cấp giao diện tạo mã định danh (Voucher/Coupon), thiết lập điều kiện áp dụng (loại giảm theo % hoặc số tiền cố định, giá trị đơn tối thiểu, mức giảm tối đa, thời hạn sử dụng) và kiểm soát giới hạn lượt dùng thực tế thông qua atomic update `used_count`.
   - **Topping & Tuỳ chọn (`/admin/toppings`):** quản lý nhóm option và danh sách topping đính kèm.
   - **Banner quảng cáo (`/admin/banner`):** thêm/sửa/xoá banner, tải ảnh, gán liên kết, thứ tự hiển thị và bật/tắt kích hoạt.
-  - **Cài đặt quán (`/admin/cai-dat`):** đóng/mở quán thủ công, cấu hình khung giờ nhận đơn, phí giao hàng nội khu.
+  - **Cài đặt quán (`/admin/cai-dat`):** đóng/mở quán thủ công, cấu hình khung giờ nhận đơn, phí giao hàng nội khu, bật/tắt phương thức thanh toán theo hình thức đặt.
 
-**Thanh toán:** PayOS (VietQR) hoặc COD (thanh toán khi nhận hàng).
+**Thanh toán:** PayOS (VietQR) hoặc COD, **superadmin bật/tắt theo từng hình thức đặt** tại `/admin/cai-dat` — 4 cột `store_settings`: `delivery_payos_enabled`, `delivery_cod_enabled`, `in_store_payos_enabled`, `in_store_cod_enabled` (CHECK ở DB: mỗi hình thức còn ít nhất 1 phương thức). Mặc định: giao tận nơi chỉ PayOS, đặt tại quầy (`?mode=in_store`) PayOS + tiền mặt. Frontend chỉ hiện phương thức đang bật (`PaymentMethods`, `allowedPaymentMethods` trong `checkoutSchema`); Edge Function `create-order` đọc lại cài đặt và từ chối phương thức đang tắt (`PAYMENT_METHOD_NOT_ALLOWED`).
 
 **Giờ hoạt động:** chỉ nhận đơn **6:00 – 18:00** (hoặc theo cấu hình `store_settings`), tự động chặn đặt đơn ngoài khung giờ này ở cả Frontend lẫn Edge Function.
 

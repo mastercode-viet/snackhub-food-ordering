@@ -21,7 +21,7 @@ Tài liệu vận hành, quy trình làm việc và bảo trì cho SnackHub (web
 |---|---|
 | Frontend | React 18 + Vite 6 + TypeScript, Tailwind CSS 3 (token Material Design 3), Zustand, Zod, `motion/react`, `lucide-react` |
 | Backend | Supabase: Postgres, Auth, Realtime, Storage, Edge Functions (Deno), `pg_cron` |
-| Thanh toán | PayOS (VietQR) hoặc COD |
+| Thanh toán | PayOS (VietQR) hoặc COD — bật/tắt theo hình thức đặt ở `/admin/cai-dat` (mục 2.3) |
 
 ### 1.2 Chạy local
 
@@ -153,7 +153,7 @@ Thao tác tại `/admin/don-hang`:
 2. Bấm nút hành động trên đơn: **Xác nhận đơn** → **Bắt đầu giao** → **Hoàn tất đơn**. Dùng bộ lọc trạng thái để thu hẹp danh sách.
 3. Quy tắc cần nhớ:
    - **Đơn PayOS**: khi tiền về (webhook), đơn tự nhảy sang *Đang chuẩn bị*, không cần bấm xác nhận. Âm báo của đơn online chỉ phát lúc thanh toán thành công, không phát lúc tạo đơn.
-   - **Đơn COD**: phát âm ngay khi đặt. Phải xác nhận **đã thu tiền** thì mới chuyển được sang *Hoàn tất* — nếu chưa, hệ thống từ chối với thông báo "Đơn chưa xác nhận thanh toán".
+   - **Đơn COD** (đơn tại quầy trả tiền mặt, hoặc đơn giao khi quán đang bật COD cho giao tận nơi): phát âm ngay khi đặt. Phải xác nhận **đã thu tiền** thì mới chuyển được sang *Hoàn tất* — nếu chưa, hệ thống từ chối với thông báo "Đơn chưa xác nhận thanh toán".
    - Đơn COD đã có người nhận giao: chỉ người đó hoặc admin được xác nhận thu tiền.
    - Đơn PayOS treo chưa thanh toán quá `payos_hold_minutes` sẽ bị hệ thống tự huỷ.
 4. **Khách tự cập nhật**: mọi lần Admin đổi trạng thái, trigger DB `orders_stamp_status()` phát broadcast `status_changed` trên kênh `order:<mã đơn>`; trang `/don-hang/:mã` của khách cập nhật ngay, không cần tải lại (vẫn có poll 20 giây làm lưới an toàn khi mất kết nối).
@@ -185,6 +185,11 @@ Cấu hình trong bảng `store_settings` (một dòng, `id = 1`):
 | `shipping_fee` | Phí giao nội khu |
 | `min_order_amount` | Giá trị đơn tối thiểu |
 | `payos_hold_minutes` | Thời gian giữ đơn PayOS chưa thanh toán |
+| `open_override_until` | Nút "Mở quán nhận đơn ngay": nhận đơn bất kể khung giờ tới mốc này (tự hết hạn cuối ngày) |
+| `delivery_payos_enabled`, `delivery_cod_enabled` | Phương thức thanh toán cho đơn giao tận nơi (mặc định chỉ PayOS) |
+| `in_store_payos_enabled`, `in_store_cod_enabled` | Phương thức thanh toán cho đơn đặt tại quầy (mặc định cả hai) |
+
+Phương thức thanh toán bật/tắt ở khối **Phương thức thanh toán**, bấm là lưu. Mỗi hình thức đặt phải còn ít nhất 1 phương thức (DB có CHECK chặn). Khi PayOS gặp sự cố, tạm bật COD cho đơn giao tận nơi rồi tắt lại khi PayOS ổn.
 
 Ngoài khung giờ hoặc khi tắt `is_open`, trang chủ hiện `StoreClosedBanner` và Edge Function `create-order` cũng từ chối đơn mới (chặn ở cả hai lớp, không chỉ giao diện). Nếu quán đóng bất thường, tắt `is_open` ngay.
 
@@ -334,6 +339,7 @@ Quy tắc:
 | Triệu chứng | Nguyên nhân thường gặp | Xử lý |
 |---|---|---|
 | Khách không đặt được, báo ngoài giờ | `is_open = false` hoặc ngoài `open_time`–`close_time` | Kiểm tra `/admin/cai-dat` |
+| Khách không thấy COD / báo "Quán đang tạm tắt..." | Phương thức đó đang tắt cho hình thức đặt này | Khối Phương thức thanh toán ở `/admin/cai-dat` |
 | Khách không thấy trạng thái đổi | Mất kết nối Realtime; trigger chưa áp migration `..._broadcast_order_status_changed` | Poll 20 giây vẫn bù; kiểm tra migration đã áp đúng project |
 | Admin không nghe chuông | Chưa bấm bật âm, trình duyệt chặn autoplay | Bật âm một lần trong giao diện admin |
 | Bấm "Hoàn tất" báo chưa thanh toán | Đơn COD chưa xác nhận thu tiền | Xác nhận đã thu tiền trước |

@@ -6,7 +6,7 @@
 
 <p align="center">
   Web đặt đồ ăn vặt, <b>giao tận lớp</b> trong khuôn viên trường đại học.<br />
-  Thiết kế <b>mobile-first</b> — đặt hàng không cần đăng nhập, thanh toán COD hoặc VietQR (PayOS).
+  Thiết kế <b>mobile-first</b> — đặt hàng không cần đăng nhập, thanh toán VietQR (PayOS) hoặc tiền mặt, quán tự bật/tắt từng phương thức.
 </p>
 
 ---
@@ -38,7 +38,7 @@ Quán chỉ nhận đơn trong khung giờ cấu hình (mặc định **6:00–1
 - **Hai cách đặt:**
   - *Giao tận nơi* — chọn toà A, B hoặc Khuôn viên (giao tại tầng 1), có thể hẹn giờ nhận trong ngày.
   - *Tự đặt tại quầy* — quét mã QR dẫn tới `?mode=in_store`: không phí giao, không cần số điện thoại.
-- **Thanh toán:** COD hoặc VietQR qua PayOS.
+- **Thanh toán:** VietQR (PayOS) hoặc tiền mặt, tuỳ phương thức quán đang bật cho từng hình thức đặt (mặc định: giao tận nơi chỉ VietQR; tại quầy VietQR hoặc tiền mặt).
 - **Theo dõi đơn** bằng mã đơn tại `/don-hang/:mã`, trạng thái cập nhật realtime; tự huỷ được khi đơn còn "Chờ xác nhận".
 
 ### Nhân viên
@@ -60,7 +60,7 @@ Toàn quyền trên `/admin/*`:
 | Thực đơn, Combo, Topping | Món và danh mục, ảnh (Supabase Storage), bật/tắt còn hàng, combo giá ưu đãi, nhóm tuỳ chọn |
 | Khuyến mãi | Mã giảm giá theo % hoặc số tiền, đơn tối thiểu, mức giảm tối đa, hạn dùng, giới hạn lượt |
 | Banner, Trang chủ | Banner có liên kết và thứ tự; bật/tắt từng khối trang chủ |
-| Cài đặt quán | Đóng/mở thủ công, **mở nhận đơn ngay** (bỏ qua khung giờ đến hết ngày), khung giờ, phí giao, đơn tối thiểu, toạ độ và bán kính chấm công |
+| Cài đặt quán | Đóng/mở thủ công, **mở nhận đơn ngay** (bỏ qua khung giờ đến hết ngày), khung giờ, phí giao, đơn tối thiểu, toạ độ và bán kính chấm công, **bật/tắt phương thức thanh toán** cho đơn giao tận nơi và đơn tại quầy |
 | Nhân sự | Tạo tài khoản nhân viên, lương theo giờ, khoá/mở hồ sơ, xác nhận bảng lương |
 | Ca làm | Lưới xếp ca theo tuần, duyệt yêu cầu xin nghỉ / đổi ca |
 | Chấm công | Lịch sử vào/ra kèm ảnh, thống kê đi trễ / về sớm |
@@ -75,7 +75,7 @@ Toàn quyền trên `/admin/*`:
 | State và validate | Zustand 5 (`persist` cho giỏ hàng), Zod 3 |
 | Giao diện | Tailwind CSS 3 với token Material Design 3 (CSS variables), `motion`, `lucide-react`, Recharts; font Plus Jakarta Sans |
 | Backend | Supabase: Postgres 17 (RLS), Auth, Realtime, Storage, Edge Functions (Deno), `pg_cron` |
-| Thanh toán | PayOS (VietQR) hoặc COD; mã QR hiển thị bằng `qrcode.react` |
+| Thanh toán | PayOS (VietQR) hoặc tiền mặt (COD), bật/tắt theo hình thức đặt; mã QR hiển thị bằng `qrcode.react` |
 | Phát hành | Frontend: static server Node (`server.js`) trên hosting Plesk/Passenger. Backend: Supabase CLI |
 
 ## Kiến trúc
@@ -196,7 +196,7 @@ Cấu hình `verify_jwt` nằm ở [`supabase/config.toml`](supabase/config.toml
 
 | Function | `verify_jwt` | Vai trò |
 |---|---|---|
-| `create-order` | có | Tạo đơn: validate Zod, kiểm tra giờ mở cửa, tra lại giá từ DB, tiêu lượt mã giảm giá (atomic), rate limit theo IP và số điện thoại, tạo link PayOS |
+| `create-order` | có | Tạo đơn: validate Zod, kiểm tra giờ mở cửa, chặn phương thức thanh toán quán đang tắt, tra lại giá từ DB, tiêu lượt mã giảm giá (atomic), rate limit theo IP và số điện thoại, tạo link PayOS |
 | `apply-discount` | có | Xem trước mức giảm của mã; có rate limit |
 | `cancel-payment` | có | Khách bỏ thanh toán PayOS |
 | `payos-webhook` | không | Nhận webhook PayOS, bảo mật bằng chữ ký HMAC trong body; idempotent |
