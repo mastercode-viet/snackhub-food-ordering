@@ -33,6 +33,7 @@ export function useCartSync(items: CartItem[]) {
         ...new Set([
           ...productItems.flatMap((i) => i.options.map((o) => o.optionId)),
           ...comboItems.flatMap((i) => i.components.flatMap((c) => c.options.map((o) => o.optionId))),
+          ...comboItems.flatMap((i) => i.choices.flatMap((c) => c.options.map((o) => o.optionId))),
         ]),
       ].sort(),
     [productItems, comboItems],
