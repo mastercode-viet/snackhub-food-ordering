@@ -995,14 +995,31 @@ function OrderPanel({
                   </p>
                 )}
                 {item.combo_items_snapshot.length > 0 && (
-                  <p className="text-body-sm text-on-surface-variant">
-                    {item.combo_items_snapshot.map((c) => `${c.quantity}× ${c.product_name}`).join(" · ")}
-                  </p>
+                  <div className="flex flex-col gap-0.5">
+                    {item.combo_items_snapshot.filter((c) => !c.is_choice).length > 0 && (
+                      <p className="text-body-sm text-on-surface-variant">
+                        <span className="font-semibold text-on-surface">Thành phần:</span>{" "}
+                        {item.combo_items_snapshot
+                          .filter((c) => !c.is_choice)
+                          .map((c) => `${c.quantity}× ${c.product_name}`)
+                          .join(" · ")}
+                      </p>
+                    )}
+                    {item.combo_items_snapshot.filter((c) => c.is_choice).length > 0 && (
+                      <p className="text-body-sm text-on-surface-variant">
+                        <span className="font-semibold text-on-surface">Khách chọn:</span>{" "}
+                        {item.combo_items_snapshot
+                          .filter((c) => c.is_choice)
+                          .map((c) => `${c.quantity}× ${c.product_name}${c.group_name ? ` (${c.group_name})` : ""}`)
+                          .join(" · ")}
+                      </p>
+                    )}
+                  </div>
                 )}
                 {item.item_note && (
                   <p className="mt-1 inline-flex max-w-full items-start gap-1 rounded-card-sm bg-tertiary-fixed px-2 py-1 text-body-sm font-semibold text-on-tertiary-fixed">
                     <NotebookPen size={13} strokeWidth={2.4} className="mt-0.5 shrink-0" />
-                    <span className="break-words">{item.item_note}</span>
+                    <span className="break-words">Ghi chú: {item.item_note}</span>
                   </p>
                 )}
               </div>
