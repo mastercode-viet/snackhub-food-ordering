@@ -55,7 +55,7 @@ interface BuiltItem {
   quantity: number;
   line_total: number;
   item_note: string | null;
-  combo_items_snapshot: Array<{ product_id: string; product_name: string; quantity: number }>;
+  combo_items_snapshot: Array<{ product_id: string; product_name: string; quantity: number; is_choice?: boolean; group_name?: string | null }>;
 }
 
 Deno.serve(async (req) => {
@@ -598,6 +598,8 @@ async function buildItems(
         choiceCountByGroup.set(ch.group_id, (choiceCountByGroup.get(ch.group_id) ?? 0) + 1);
       }
 
+      const choiceSnapshots: BuiltItem["combo_items_snapshot"] = [];
+
       for (const g of choiceGroups as Array<{ id: string; name: string; min_select: number; max_select: number; items: Array<{ product_id: string; quantity: number }> }>) {
         const selected = (line.choices ?? []).filter((c) => c.group_id === g.id);
         const min = Math.max(0, Number(g.min_select) || 0);
@@ -614,6 +616,13 @@ async function buildItems(
             return { error: "CHOICE_MISMATCH", message: "Món đã chọn không thuộc nhóm lựa chọn." };
           }
           const groupItem = (g.items ?? []).find((it) => it.product_id === ch.product_id)!;
+          choiceSnapshots.push({
+            product_id: ch.product_id,
+            product_name: relatedProductNameById.get(ch.product_id) ?? ch.product_id,
+            quantity: groupItem.quantity ?? 1,
+            is_choice: true,
+            group_name: g.name,
+          });
           // validate options for chosen product
           for (const optId of ch.option_ids ?? []) {
             const opt = optionById.get(optId);
@@ -670,11 +679,14 @@ async function buildItems(
         quantity: line.quantity,
         line_total: unitPrice * line.quantity,
         item_note: line.item_note ?? null,
-        combo_items_snapshot: comboItems.map((i) => ({
-          product_id: i.product_id,
-          product_name: i.name,
-          quantity: i.quantity,
-        })),
+        combo_items_snapshot: [
+          ...comboItems.map((i) => ({
+            product_id: i.product_id,
+            product_name: i.name,
+            quantity: i.quantity,
+          })),
+          ...choiceSnapshots,
+        ],
       });
       continue;
     }
