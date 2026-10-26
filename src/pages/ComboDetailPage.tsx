@@ -504,7 +504,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
           {/* Sticky add to cart bar */}
           <div className="fixed inset-x-0 bottom-0 z-40 px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] md:static md:p-0">
             <div className="mx-auto max-w-md md:max-w-none">
-              <div className="flex items-center justify-between gap-3 rounded-sheet glass-nav p-3 shadow-sheet border border-white/60 md:bg-surface-container-lowest md:backdrop-blur-none">
+              <div className="flex items-center justify-between gap-3 rounded-sheet bg-surface-container-lowest p-3 shadow-sheet border border-outline-variant md:bg-surface-container-lowest">
                 <QuantityStepper value={quantity} onChange={setQuantity} />
 
                 <motion.button
@@ -520,7 +520,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
                     {combo.is_available ? "Thêm giỏ hàng" : "Tạm hết hàng"}
                   </span>
                   {combo.is_available && (
-                    <span className="font-extrabold tracking-wide text-primary-fixed">{formatVnd(total)}</span>
+                    <span className="font-extrabold tracking-wide text-primary text-headline-sm">{formatVnd(total)}</span>
                   )}
                 </motion.button>
               </div>
