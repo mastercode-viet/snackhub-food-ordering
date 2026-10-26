@@ -103,11 +103,10 @@ Deno.serve(async (req) => {
       // quán thì webhook phải luôn thắng, không được để đơn kẹt ở trạng thái huỷ
       // trong khi tiền đã nhận.
       //
-      // Trả tiền online = coi như đã xác nhận đơn, khỏi cần Admin bấm "Xác nhận
-      // đơn" tay: nhảy thẳng pending_confirmation/cancelled -> preparing. Không
-      // lùi một đơn đã đi xa hơn (delivering/completed) về preparing.
-      const CONFIRMED_OR_LATER = new Set(["preparing", "delivering", "completed"]);
-      const nextStatus = CONFIRMED_OR_LATER.has(order.status) ? order.status : "preparing";
+      // Tách bạch thanh toán và chế biến: Trả tiền online chỉ ghi nhận payment_status = 'paid'.
+      // KHÔNG tự động chuyển status sang 'preparing' để nhân viên chủ động xác nhận và làm món theo hàng đợi FIFO.
+      // Nếu đơn từng bị huỷ nhầm do race condition (cancel-payment) nhưng tiền vẫn về, khôi phục về pending_confirmation.
+      const nextStatus = order.status === "cancelled" ? "pending_confirmation" : order.status;
 
       const { data: updated, error: upErr } = await db
         .from("orders")

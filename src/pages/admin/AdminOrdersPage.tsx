@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 import {
   AlarmClock,
@@ -53,9 +53,10 @@ const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>>
 
 
 
-type TabKey = OrderStatus | "all" | "sla_overdue" | "scheduled";
+type TabKey = "fifo_queue" | OrderStatus | "all" | "sla_overdue" | "scheduled";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
+  { key: "fifo_queue", label: "📋 Hàng đợi FIFO" },
   { key: "pending_confirmation", label: "Chờ xác nhận" },
   { key: "preparing", label: "Đang làm" },
   { key: "delivering", label: "Đang giao / Chờ lấy" },
@@ -162,7 +163,7 @@ export default function AdminOrdersPage() {
   const { isAdmin } = useOutletContext<AdminOutletContext>();
   const state = useAsync(() => fetchAdminOrders(), []);
   const { soundEnabled, soundBlocked, enableSound, disableSound } = useAdminOrderAlerts();
-  const [tab, setTab] = useState<TabKey>("pending_confirmation");
+  const [tab, setTab] = useState<TabKey>("fifo_queue");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Mở thẳng một đơn từ pop-up cảnh báo giờ hẹn: /admin/don-hang?don=<id>.
@@ -218,6 +219,24 @@ export default function AdminOrdersPage() {
 
   const orders = state.data ?? [];
 
+  // Thống kê đơn đang xử lý cho hàng đợi FIFO
+  const { activeOrdersCount, pendingCount, preparingCount, deliveringCount } = useMemo(() => {
+    let pending = 0;
+    let preparing = 0;
+    let delivering = 0;
+    for (const o of orders) {
+      if (o.status === "pending_confirmation") pending++;
+      else if (o.status === "preparing") preparing++;
+      else if (o.status === "delivering") delivering++;
+    }
+    return {
+      activeOrdersCount: pending + preparing + delivering,
+      pendingCount: pending,
+      preparingCount: preparing,
+      deliveringCount: delivering,
+    };
+  }, [orders]);
+
   // Thống kê SLA toàn cục
   const { criticalCount, warningCount } = useMemo(() => {
     let crit = 0;
@@ -250,10 +269,14 @@ export default function AdminOrdersPage() {
     );
   }, [orders]);
 
-  // Lọc và Sắp xếp ưu tiên: Đơn trễ hạn (Critical -> Warning) tự động đẩy lên đầu danh sách!
+  // Lọc và Sắp xếp ưu tiên:
+  // - Tab FIFO: Sắp xếp cũ nhất trước (created_at ASC), tie-breaker a.id.localeCompare(b.id)
+  // - Các tab khác: Giữ logic ưu tiên SLA và thời gian đặt
   const visible = useMemo(() => {
     let filtered = orders;
-    if (tab === "scheduled") {
+    if (tab === "fifo_queue") {
+      filtered = orders.filter((o) => o.status !== "completed" && o.status !== "cancelled");
+    } else if (tab === "scheduled") {
       filtered = orders.filter(isOpenScheduled);
     } else if (tab === "sla_overdue") {
       filtered = orders.filter((o) => {
@@ -279,6 +302,16 @@ export default function AdminOrdersPage() {
           normalizeSearch(o.customer_name).includes(q) ||
           (o.customer_phone ?? "").includes(q),
       );
+    }
+
+    // Quy tắc FIFO: Đơn tạo sớm hơn có thứ tự ưu tiên trước; đơn mới luôn thêm cuối hàng đợi
+    if (tab === "fifo_queue") {
+      return [...filtered].sort((a, b) => {
+        const aTime = new Date(a.created_at).getTime();
+        const bTime = new Date(b.created_at).getTime();
+        if (aTime !== bTime) return aTime - bTime;
+        return a.id.localeCompare(b.id);
+      });
     }
 
     // Sắp xếp ưu tiên theo SLA đối với các đơn chưa hoàn thành
@@ -396,6 +429,58 @@ export default function AdminOrdersPage() {
       allPage.reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không cập nhật được, thử lại nhé.");
+    }
+  }
+
+  // Nút thao tác nhanh trên từng dòng FIFO — chống bấm lặp và kiểm tra stale state
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  async function handleQuickAction(order: AdminOrder) {
+    if (actionLoadingId) return; // chống bấm lặp khi đang xử lý đơn khác
+    // Lấy lại state mới nhất từ bộ nhớ để chống stale
+    const fresh = orders.find((o) => o.id === order.id);
+    if (!fresh) return;
+
+    const inStore = fresh.delivery_method === "in_store";
+    const blockedUnpaidPayos = fresh.payment_method === "payos" && fresh.payment_status !== "paid";
+
+    let action: (() => Promise<void>) | null = null;
+    let okMsg = "";
+
+    if (inStore && fresh.status !== "completed" && fresh.status !== "cancelled") {
+      if (blockedUnpaidPayos) {
+        toast.error("Đơn VietQR chưa nhận tiền — chờ khách thanh toán xong.");
+        return;
+      }
+      const collectCash = fresh.payment_method === "cod" && fresh.payment_status !== "paid";
+      action = () => completeInStoreOrder(fresh.id, collectCash);
+      okMsg = `Đơn ${fresh.order_code}: Hoàn tất.`;
+    } else {
+      const next = NEXT[fresh.status];
+      if (!next) return;
+      if (blockedUnpaidPayos) {
+        toast.error("Đơn VietQR chưa nhận tiền — không thể xác nhận.");
+        return;
+      }
+      if (next.status === "completed" && fresh.payment_status !== "paid") {
+        toast.error("Chưa thu tiền — không thể hoàn tất.");
+        return;
+      }
+      action = () => setOrderStatus(fresh.id, next.status);
+      okMsg = `Đơn ${fresh.order_code}: ${statusLabel(next.status, fresh.delivery_method)}.`;
+    }
+
+    if (!action) return;
+    setActionLoadingId(fresh.id);
+    try {
+      await action();
+      toast.success(okMsg);
+      state.reload();
+      allPage.reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không cập nhật được, thử lại nhé.");
+    } finally {
+      setActionLoadingId(null);
     }
   }
 
@@ -526,7 +611,8 @@ export default function AdminOrdersPage() {
         {TABS.map((t) => {
           const active = t.key === tab;
           let count = 0;
-          if (t.key === "all") count = tab === "all" && allPage.data ? allPage.data.total : orders.length;
+          if (t.key === "fifo_queue") count = activeOrdersCount;
+          else if (t.key === "all") count = tab === "all" && allPage.data ? allPage.data.total : orders.length;
           else if (t.key === "sla_overdue") count = criticalCount + warningCount;
           else if (t.key === "scheduled") count = orders.filter(isOpenScheduled).length;
           else if (t.key === tab && serverPaged && allPage.data) count = allPage.data.total;
@@ -618,6 +704,24 @@ export default function AdminOrdersPage() {
       ) : (
         <div className="flex flex-col gap-gutter-mobile xl:flex-row xl:gap-gutter">
           <section className="flex min-w-0 flex-1 flex-col rounded-card-lg bg-surface-container-lowest p-4 shadow-card">
+            {/* Banner FIFO — hiện khi đang ở tab hàng đợi */}
+            {tab === "fifo_queue" && (
+              <div className="mb-3 rounded-card border border-primary/20 bg-primary-container/20 px-4 py-3">
+                <p className="text-label-md font-bold text-on-surface">
+                  Hàng đợi xử lý đơn
+                </p>
+                <p className="mt-0.5 text-body-sm text-on-surface-variant">
+                  Đơn cũ nhất trước (FIFO) · Đơn mới được thêm vào cuối hàng đợi
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <StatPill label="Tổng đang chờ" value={activeOrdersCount} color="primary" />
+                  <StatPill label="Chờ xác nhận" value={pendingCount} color="amber" />
+                  <StatPill label="Đang làm" value={preparingCount} color="blue" />
+                  <StatPill label="Đang giao" value={deliveringCount} color="green" />
+                </div>
+              </div>
+            )}
+
             {serverPaged && allPage.loading && !allPage.data ? (
               <Skeleton className="h-64 w-full rounded-card" />
             ) : serverPaged && allPage.error ? (
@@ -628,20 +732,24 @@ export default function AdminOrdersPage() {
                 title={
                   debouncedSearch.trim()
                     ? "Không tìm thấy đơn nào khớp"
-                    : tab === "sla_overdue"
-                      ? "Tuyệt vời! Không có đơn nào trễ hạn"
-                      : tab === "scheduled"
-                        ? "Chưa có đơn hẹn giờ nào"
-                        : "Không có đơn nào ở mục này"
+                    : tab === "fifo_queue"
+                      ? "Tuyệt vời! Hàng đợi trống"
+                      : tab === "sla_overdue"
+                        ? "Tuyệt vời! Không có đơn nào trễ hạn"
+                        : tab === "scheduled"
+                          ? "Chưa có đơn hẹn giờ nào"
+                          : "Không có đơn nào ở mục này"
                 }
                 description={
                   debouncedSearch.trim()
                     ? "Thử tìm với mã đơn, tên khách hoặc số điện thoại khác."
-                    : tab === "sla_overdue"
-                      ? "Mọi đơn hàng đều được xử lý và giao đúng hạn mức thời gian."
-                      : tab === "scheduled"
-                        ? "Đơn khách chọn \"Giờ muốn nhận\" sẽ hiện ở đây, giờ giao sớm nhất xếp trên."
-                        : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
+                    : tab === "fifo_queue"
+                      ? "Chưa có đơn đang chờ xử lý — đơn mới sẽ tự xuất hiện."
+                      : tab === "sla_overdue"
+                        ? "Mọi đơn hàng đều được xử lý và giao đúng hạn mức thời gian."
+                        : tab === "scheduled"
+                          ? "Đơn khách chọn \"Giờ muốn nhận\" sẽ hiện ở đây, giờ giao sớm nhất xếp trên."
+                          : "Đơn mới sẽ tự xuất hiện ngay khi khách đặt."
                 }
               />
             ) : groupedByBuilding ? (
@@ -673,13 +781,16 @@ export default function AdminOrdersPage() {
               </div>
             ) : (
               <ul className="flex flex-col divide-y divide-outline-variant">
-                {list.map((order) => (
+                {list.map((order, idx) => (
                   <OrderRow
                     key={order.id}
                     order={order}
                     now={now}
                     selected={order.id === selectedId}
                     onSelect={() => setSelectedId(order.id)}
+                    queueIndex={tab === "fifo_queue" ? idx + 1 : undefined}
+                    onQuickAction={tab === "fifo_queue" ? () => void handleQuickAction(order) : undefined}
+                    isActionLoading={actionLoadingId === order.id}
                   />
                 ))}
               </ul>
@@ -1126,20 +1237,74 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** 1 dòng đơn trong hàng đợi — tách khỏi AdminOrdersPage để dùng chung cho cả danh sách phẳng lẫn danh sách gom theo toà nhà. */
+/** Pill thống kê nhỏ dùng trong banner FIFO. */
+function StatPill({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number;
+  color: "primary" | "amber" | "blue" | "green";
+}): ReactNode {
+  const colorClass = {
+    primary: "bg-primary/10 text-primary",
+    amber: "bg-amber-100 text-amber-800",
+    blue: "bg-blue-100 text-blue-800",
+    green: "bg-emerald-100 text-emerald-800",
+  }[color];
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-label-xs font-semibold ${colorClass}`}>
+      <span className="text-label-md font-bold">{value}</span>
+      {label}
+    </span>
+  );
+}
+
+/**
+ * 1 dòng đơn trong hàng đợi — tách khỏi AdminOrdersPage để dùng chung cho cả
+ * danh sách phẳng lẫn danh sách gom theo toà nhà.
+ *
+ * Wrapper là <div role="button"> thay vì <button> để cho phép đặt nút thao tác
+ * nhanh bên trong mà không vi phạm HTML semantics (button-in-button).
+ */
 function OrderRow({
   order,
   now,
   selected,
   onSelect,
+  queueIndex,
+  onQuickAction,
+  isActionLoading,
 }: {
   order: AdminOrder;
   now: number;
   selected: boolean;
   onSelect: () => void;
+  /** Số thứ tự trong hàng đợi FIFO (1-indexed). Hiện badge #N khi được cung cấp. */
+  queueIndex?: number;
+  /** Callback thao tác nhanh trên dòng — chỉ truyền khi tab === "fifo_queue". */
+  onQuickAction?: () => void;
+  /** true khi đơn này đang được xử lý (spinner). */
+  isActionLoading?: boolean;
 }) {
   const sla = getOrderSla(order, now);
   const isFinished = order.status === "completed" || order.status === "cancelled";
+  const inStore = order.delivery_method === "in_store";
+  const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
+
+  // Nhãn nút thao tác nhanh dựa trên trạng thái đơn
+  let quickLabel: string | null = null;
+  if (onQuickAction && !isFinished) {
+    if (inStore) {
+      if (!blockedUnpaidPayos) quickLabel = order.payment_method === "cod" && order.payment_status !== "paid"
+        ? `Thu ${formatVnd(order.total_amount)} & Hoàn tất`
+        : "Hoàn tất đơn";
+    } else {
+      const next = NEXT[order.status];
+      if (next && !blockedUnpaidPayos) quickLabel = next.label;
+    }
+  }
 
   // Định kiểu khung cảnh báo SLA cho từng thẻ đơn
   let alertCardClass = "hover:bg-surface-container-low";
@@ -1151,19 +1316,28 @@ function OrderRow({
     } else if (sla.level === "warning") {
       alertCardClass = "border-l-4 border-l-amber-500 bg-amber-50/50 hover:bg-amber-100/50";
     } else if (order.desired_delivery_time) {
-      // Đơn hẹn giờ chưa tới mốc cảnh báo — vẫn đánh dấu để nhân viên nhận ra ngay.
       alertCardClass = "border-l-4 border-l-inverse-surface hover:bg-surface-container-low";
     }
   }
 
   return (
     <li className="py-1">
-      <button
-        type="button"
+      {/* div role=button thay <button> để chứa nút thao tác nhanh bên trong */}
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onSelect}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect()}
         aria-current={selected}
-        className={`flex w-full min-h-[48px] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-card px-3 py-3 text-left transition-all ${alertCardClass}`}
+        className={`flex w-full min-h-[48px] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-card px-3 py-3 text-left transition-all cursor-pointer ${alertCardClass}`}
       >
+        {/* Badge số thứ tự FIFO */}
+        {queueIndex !== undefined && (
+          <span className="shrink-0 inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-inverse-surface text-label-xs font-bold text-inverse-on-surface px-1.5">
+            #{queueIndex}
+          </span>
+        )}
+
         <div className="flex items-center gap-2">
           <span className="font-mono text-label-md font-bold text-on-surface">{order.order_code}</span>
           <OrderStatusBadge status={order.status} deliveryMethod={order.delivery_method} />
@@ -1193,8 +1367,23 @@ function OrderRow({
           <span className="text-label-xs text-on-surface-variant">{formatTime(order.created_at)}</span>
         )}
 
+        {/* Badge trạng thái thanh toán — luôn hiện trong FIFO queue */}
+        {onQuickAction && !isFinished && (
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-label-xs font-semibold ${
+              order.payment_status === "paid"
+                ? "bg-emerald-100 text-emerald-800"
+                : order.payment_method === "payos"
+                  ? "bg-amber-100 text-amber-800"
+                  : "bg-surface-container-high text-on-surface-variant"
+            }`}
+          >
+            {order.payment_status === "paid" ? "✓ Đã TT" : order.payment_method === "payos" ? "Chờ QR" : "Tiền mặt"}
+          </span>
+        )}
+
         {/* Loại đơn — luôn hiện để nhân viên biết đơn này đi giao hay khách đặt tại quầy. */}
-        {order.delivery_method === "in_store" ? (
+        {inStore ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-primary-fixed px-2.5 py-0.5 text-label-xs font-bold text-on-primary-fixed">
             <Store size={12} strokeWidth={2.4} />
             Tại quầy
@@ -1226,7 +1415,35 @@ function OrderRow({
         </span>
 
         <span className="text-label-md font-bold text-primary">{formatVnd(order.total_amount)}</span>
-      </button>
+
+        {/* Nút thao tác nhanh — chỉ hiện trong tab FIFO và khi có bước kế tiếp */}
+        {onQuickAction && quickLabel && (
+          <button
+            type="button"
+            disabled={isActionLoading}
+            onClick={(e) => {
+              e.stopPropagation(); // không trigger onSelect của dòng
+              onQuickAction();
+            }}
+            className="ml-auto shrink-0 inline-flex min-h-[36px] items-center gap-1.5 rounded-card bg-inverse-surface px-3 text-label-sm font-semibold text-inverse-on-surface shadow-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isActionLoading ? (
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+              </svg>
+            ) : null}
+            {quickLabel}
+          </button>
+        )}
+
+        {/* Nút chờ QR — disable, chỉ thông báo khi PayOS chưa thanh toán */}
+        {onQuickAction && !isFinished && blockedUnpaidPayos && (
+          <span className="ml-auto shrink-0 inline-flex min-h-[36px] items-center rounded-card border border-amber-400/60 bg-amber-50 px-3 text-label-sm font-semibold text-amber-800 opacity-70">
+            Chờ quét QR
+          </span>
+        )}
+      </div>
     </li>
   );
 }

@@ -176,14 +176,34 @@ const ORDER_COLUMNS =
   "combo_items_snapshot, unit_price, quantity, line_total, item_note)";
 
 export async function fetchAdminOrders(limit = 100): Promise<AdminOrder[]> {
-  const { data, error } = await supabase
+  // 1. Luôn lấy đầy đủ tất cả đơn đang hoạt động (chưa hoàn tất, chưa huỷ)
+  // để hàng đợi FIFO không bao giờ bị sót đơn dù có bao nhiêu đơn lịch sử.
+  const activeQuery = supabase
+    .from("orders")
+    .select(ORDER_COLUMNS)
+    .in("status", ["pending_confirmation", "preparing", "delivering"])
+    .order("created_at", { ascending: true });
+
+  // 2. Lấy thêm các đơn mới nhất (bao gồm cả completed/cancelled gần đây)
+  const recentQuery = supabase
     .from("orders")
     .select(ORDER_COLUMNS)
     .order("created_at", { ascending: false })
     .limit(limit);
 
-  if (error) throw error;
-  return data as unknown as AdminOrder[];
+  const [activeRes, recentRes] = await Promise.all([activeQuery, recentQuery]);
+  if (activeRes.error) throw activeRes.error;
+  if (recentRes.error) throw recentRes.error;
+
+  const map = new Map<string, AdminOrder>();
+  for (const o of (activeRes.data as unknown as AdminOrder[]) ?? []) {
+    map.set(o.id, o);
+  }
+  for (const o of (recentRes.data as unknown as AdminOrder[]) ?? []) {
+    map.set(o.id, o);
+  }
+
+  return [...map.values()];
 }
 
 export type ScheduledOrder = Pick<
@@ -408,26 +428,28 @@ export async function fetchDailyStats(from: string, to: string): Promise<DailySt
   return spine;
 }
 
-/** View trả theo từng ngày; gộp lại theo món để ra bảng bán chạy. */
-export async function fetchTopProducts(from: string, to: string, limit = 8): Promise<TopProduct[]> {
+/** View trả theo từng ngày; gộp lại theo món để ra bảng bán chạy (không cắt giới hạn mặc định). */
+export async function fetchTopProducts(from: string, to: string, limit?: number): Promise<TopProduct[]> {
   const { data, error } = await supabase
     .from("admin_top_products")
-    .select("product_name, total_quantity, total_revenue")
+    .select("product_id, product_name, total_quantity, total_revenue")
     .gte("day", from)
-    .lte("day", to);
+    .lte("day", to)
+    .limit(10000);
 
   if (error) throw error;
 
-  const byName = new Map<string, TopProduct>();
+  const byId = new Map<string, TopProduct>();
   for (const row of data ?? []) {
-    const name = row.product_name as string;
-    const cur = byName.get(name) ?? { product_name: name, quantity: 0, revenue: 0 };
+    const key = (row.product_id as string) || (row.product_name as string);
+    const cur = byId.get(key) ?? { product_name: row.product_name as string, quantity: 0, revenue: 0 };
     cur.quantity += Number(row.total_quantity);
     cur.revenue += Number(row.total_revenue);
-    byName.set(name, cur);
+    byId.set(key, cur);
   }
 
-  return [...byName.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
+  const sorted = [...byId.values()].sort((a, b) => b.quantity - a.quantity);
+  return typeof limit === "number" ? sorted.slice(0, limit) : sorted;
 }
 
 // ── Thống kê khách (nhận diện theo số điện thoại, chỉ đơn hoàn tất) ────────
@@ -468,13 +490,14 @@ export async function fetchCustomerRetention(from: string, to: string): Promise<
   };
 }
 
-/** Combo bán chạy — cùng khuôn view day-grain như admin_top_products. */
-export async function fetchTopCombos(from: string, to: string, limit = 8): Promise<TopCombo[]> {
+/** Combo bán chạy — cùng khuôn view day-grain như admin_top_products (không cắt giới hạn mặc định). */
+export async function fetchTopCombos(from: string, to: string, limit?: number): Promise<TopCombo[]> {
   const { data, error } = await supabase
     .from("admin_top_combos")
     .select("combo_id, combo_name, total_quantity, total_revenue")
     .gte("day", from)
-    .lte("day", to);
+    .lte("day", to)
+    .limit(10000);
 
   if (error) throw error;
 
@@ -488,7 +511,8 @@ export async function fetchTopCombos(from: string, to: string, limit = 8): Promi
     byId.set(id, cur);
   }
 
-  return [...byId.values()].sort((a, b) => b.quantity - a.quantity).slice(0, limit);
+  const sorted = [...byId.values()].sort((a, b) => b.quantity - a.quantity);
+  return typeof limit === "number" ? sorted.slice(0, limit) : sorted;
 }
 
 /**

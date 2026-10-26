@@ -545,7 +545,12 @@ function BestSellersCard({ products, combos }: { products: TopProduct[]; combos:
   return (
     <section className="rounded-card-lg bg-surface-container-lowest p-5 shadow-card">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-label-lg text-on-surface">Bán chạy</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-label-lg text-on-surface">Bán chạy</h2>
+          <span className="rounded-pill bg-surface-container px-2 py-0.5 text-label-sm text-on-surface-variant">
+            {tab === "products" ? `${products.length} món` : `${combos.length} combo`}
+          </span>
+        </div>
 
         <div className="flex gap-1 rounded-card bg-surface-container p-1">
           {(["products", "combos"] as const).map((t) => (
@@ -559,7 +564,7 @@ function BestSellersCard({ products, combos }: { products: TopProduct[]; combos:
                   : "text-on-surface-variant"
               }`}
             >
-              {t === "products" ? "Sản phẩm" : "Combo"}
+              {t === "products" ? `Sản phẩm (${products.length})` : `Combo (${combos.length})`}
             </button>
           ))}
         </div>
@@ -576,6 +581,9 @@ function TopProductTable({ rows }: { rows: TopProduct[] }) {
   if (rows.length === 0) {
     return <p className="text-body-sm text-on-surface-variant">Chưa có món nào bán trong khoảng này.</p>;
   }
+
+  const totalQuantity = rows.reduce((sum, r) => sum + r.quantity, 0);
+  const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
 
   return (
     <table className="w-full text-body-md">
@@ -595,6 +603,13 @@ function TopProductTable({ rows }: { rows: TopProduct[] }) {
           </tr>
         ))}
       </tbody>
+      <tfoot>
+        <tr className="border-t-2 border-outline-variant font-medium text-on-surface">
+          <td className="py-2.5 font-semibold">Tổng cộng ({rows.length} món)</td>
+          <td className="py-2.5 text-right font-semibold text-on-surface-variant">{totalQuantity}</td>
+          <td className="py-2.5 text-right font-semibold text-on-surface">{formatVnd(totalRevenue)}</td>
+        </tr>
+      </tfoot>
     </table>
   );
 }
@@ -603,6 +618,9 @@ function TopComboTable({ rows }: { rows: TopCombo[] }) {
   if (rows.length === 0) {
     return <p className="text-body-sm text-on-surface-variant">Chưa có combo nào bán trong khoảng này.</p>;
   }
+
+  const totalQuantity = rows.reduce((sum, r) => sum + r.quantity, 0);
+  const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
 
   return (
     <table className="w-full text-body-md">
@@ -622,6 +640,13 @@ function TopComboTable({ rows }: { rows: TopCombo[] }) {
           </tr>
         ))}
       </tbody>
+      <tfoot>
+        <tr className="border-t-2 border-outline-variant font-medium text-on-surface">
+          <td className="py-2.5 font-semibold">Tổng cộng ({rows.length} combo)</td>
+          <td className="py-2.5 text-right font-semibold text-on-surface-variant">{totalQuantity}</td>
+          <td className="py-2.5 text-right font-semibold text-on-surface">{formatVnd(totalRevenue)}</td>
+        </tr>
+      </tfoot>
     </table>
   );
 }
