@@ -72,7 +72,7 @@ export type CreateOrderPayload = {
   // supabase/functions/_shared/schemas.ts — hai bên là bản sao của nhau.
   items: Array<
     | { kind: "product"; product_id: string; quantity: number; option_ids: string[]; item_note?: string }
-    | { kind: "combo"; combo_id: string; quantity: number; item_note?: string }
+    | { kind: "combo"; combo_id: string; quantity: number; item_note?: string; components?: Array<{ product_id: string; option_ids: string[] }>; choices?: Array<{ group_id: string; product_id: string; option_ids: string[] }> }
   >;
 };
 

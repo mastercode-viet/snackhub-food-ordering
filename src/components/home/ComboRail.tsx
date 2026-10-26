@@ -1,14 +1,14 @@
 import { Plus, ShoppingBag } from "lucide-react";
 import { motion } from "motion/react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import ProductImage from "@/components/product/ProductImage";
 import ErrorState from "@/components/ui/ErrorState";
 import { ComboRailSkeleton } from "@/components/Skeleton";
+import ComboSheet from "@/components/home/ComboSheet";
 import { useAsync } from "@/hooks/useAsync";
-import { fetchCombos, type ComboWithItems } from "@/lib/queries";
 import { formatVnd } from "@/lib/format";
-import { comboToCartItem, useCartStore } from "@/store/cart";
-import { toast } from "@/store/toast";
+import { fetchCombos, type ComboWithItems } from "@/lib/queries";
 
 /** Số chip món con hiển thị tối đa trên 1 thẻ trước khi rút gọn thành "+N". */
 const MAX_ITEM_CHIPS = 3;
@@ -58,7 +58,7 @@ export default function ComboRail() {
 }
 
 function ComboCard({ combo }: { combo: ComboWithItems }) {
-  const addItem = useCartStore((s) => s.addItem);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   const chips = combo.combo_items
     .filter((i): i is typeof i & { products: NonNullable<typeof i.products> } => Boolean(i.products))
@@ -68,58 +68,62 @@ function ComboCard({ combo }: { combo: ComboWithItems }) {
 
   function handleAdd(e: React.MouseEvent) {
     e.preventDefault();
-    addItem(comboToCartItem(combo, 1));
-    toast.success(`Đã thêm "${combo.name}" vào giỏ`);
+    e.stopPropagation();
+    setSheetOpen(true);
   }
 
   return (
-    <Link
-      to={`/combo/${combo.slug}`}
-      className="flex w-72 items-start gap-3.5 rounded-card bg-surface-container-lowest p-2 border border-outline-variant/60 shadow-card transition-shadow hover:shadow-card-hover"
-    >
-      <ProductImage
-        src={combo.image_url}
-        alt={combo.name}
-        fallbackIcon="🍱"
-        className="size-20 shrink-0 rounded-card-sm"
-      />
+    <>
+      <Link
+        to={`/combo/${combo.slug}`}
+        className="flex w-72 items-start gap-3.5 rounded-card bg-surface-container-lowest p-2 border border-outline-variant/60 shadow-card transition-shadow hover:shadow-card-hover"
+      >
+        <ProductImage
+          src={combo.image_url}
+          alt={combo.name}
+          fallbackIcon="🍱"
+          className="size-20 shrink-0 rounded-card-sm"
+        />
 
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
-        <h3 className="line-clamp-1 text-label-md font-semibold leading-tight text-on-surface">
-          {combo.name}
-        </h3>
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-1">
+          <h3 className="line-clamp-1 text-label-md font-semibold leading-tight text-on-surface">
+            {combo.name}
+          </h3>
 
-        {shownChips.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
-            {shownChips.map((chip) => (
-              <span
-                key={chip}
-                className="rounded-full bg-secondary-fixed/60 px-2 py-0.5 text-label-xs font-semibold text-on-secondary-fixed"
-              >
-                {chip}
-              </span>
-            ))}
-            {extraCount > 0 && (
-              <span className="text-label-xs font-semibold text-on-surface-variant">+{extraCount}</span>
-            )}
+          {shownChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              {shownChips.map((chip) => (
+                <span
+                  key={chip}
+                  className="rounded-full bg-secondary-fixed/60 px-2 py-0.5 text-label-xs font-semibold text-on-secondary-fixed"
+                >
+                  {chip}
+                </span>
+              ))}
+              {extraCount > 0 && (
+                <span className="text-label-xs font-semibold text-on-surface-variant">+{extraCount}</span>
+              )}
+            </div>
+          )}
+
+          <div className="mt-0.5 flex items-center justify-between gap-2">
+            <span className="text-label-lg font-extrabold text-primary">{formatVnd(Number(combo.price))}</span>
+
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              type="button"
+              onClick={handleAdd}
+              aria-label={`Thêm "${combo.name}" vào giỏ`}
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow hover:shadow-card-hover"
+            >
+              <Plus size={18} strokeWidth={2.8} />
+            </motion.button>
           </div>
-        )}
-
-        <div className="mt-0.5 flex items-center justify-between gap-2">
-          <span className="text-label-lg font-extrabold text-primary">{formatVnd(Number(combo.price))}</span>
-
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            type="button"
-            onClick={handleAdd}
-            aria-label={`Thêm "${combo.name}" vào giỏ`}
-            className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow hover:shadow-card-hover"
-          >
-            <Plus size={18} strokeWidth={2.8} />
-          </motion.button>
         </div>
-      </div>
-    </Link>
+      </Link>
+
+      {sheetOpen && <ComboSheet slug={combo.slug} onClose={() => setSheetOpen(false)} />}
+    </>
   );
 }

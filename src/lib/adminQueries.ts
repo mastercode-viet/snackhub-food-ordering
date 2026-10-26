@@ -882,6 +882,22 @@ export type AdminCombo = Tables<"combos"> & {
   combo_items: AdminComboItem[];
 };
 
+export type ComboChoiceItem = {
+  product_id: string;
+  product_name?: string;
+  quantity: number;
+  sort_order?: number;
+};
+
+export type ComboChoiceGroup = {
+  id: string;
+  name: string;
+  min_select: number;
+  max_select: number;
+  sort_order: number;
+  items: ComboChoiceItem[];
+};
+
 export type ComboFormValues = {
   name: string;
   slug: string;
@@ -891,6 +907,7 @@ export type ComboFormValues = {
   is_available: boolean;
   is_featured: boolean;
   sort_order: number;
+  choice_groups: ComboChoiceGroup[];
 };
 
 export type ComboItemInput = {
@@ -906,6 +923,16 @@ export async function fetchAdminCombos(): Promise<AdminCombo[]> {
     .order("sort_order")
     .order("created_at", { ascending: false });
 
+  if (error && /choice_groups/i.test(error.message ?? "")) {
+    const retry = await supabase
+      .from("combos")
+      .select("id, name, slug, description, price, image_url, is_available, is_featured, sort_order, created_at, updated_at, combo_items(*, products(id, name, base_price, image_url, is_available))")
+      .order("sort_order")
+      .order("created_at", { ascending: false });
+    if (retry.error) throw retry.error;
+    return (retry.data as unknown as AdminCombo[]) ?? [];
+  }
+
   if (error) throw error;
   return data as unknown as AdminCombo[];
 }
@@ -914,18 +941,27 @@ export async function createCombo(
   combo: ComboFormValues,
   items: ComboItemInput[],
 ): Promise<void> {
-  const { data: newCombo, error: comboErr } = await supabase
+  const payload = { ...combo, choice_groups: combo.choice_groups ?? [] };
+  let { data: newCombo, error: comboErr } = await supabase
     .from("combos")
-    .insert(combo)
+    .insert(payload)
     .select("id")
     .single();
+
+  // Fallback khi DB chua co cot choice_groups (migration chua chay).
+  if (comboErr && /choice_groups/i.test(comboErr.message ?? "")) {
+    const { choice_groups: _cg, ...rest } = payload;
+    const retry = await supabase.from("combos").insert(rest).select("id").single();
+    newCombo = retry.data;
+    comboErr = retry.error;
+  }
 
   if (comboErr) throw comboErr;
 
   if (items.length > 0) {
     const { error: itemsErr } = await supabase.from("combo_items").insert(
       items.map((item, idx) => ({
-        combo_id: newCombo.id,
+        combo_id: newCombo!.id,
         product_id: item.product_id,
         quantity: item.quantity,
         sort_order: item.sort_order ?? idx,
@@ -940,7 +976,16 @@ export async function updateCombo(
   combo: Partial<ComboFormValues>,
   items?: ComboItemInput[],
 ): Promise<void> {
-  const { error: comboErr } = await supabase.from("combos").update(combo).eq("id", id);
+  const payload = { ...combo, choice_groups: combo.choice_groups ?? [] };
+  let { error: comboErr } = await supabase.from("combos").update(payload).eq("id", id);
+
+  // Fallback khi DB chua co cot choice_groups.
+  if (comboErr && /choice_groups/i.test(comboErr.message ?? "")) {
+    const { choice_groups: _cg, ...rest } = payload;
+    const retry = await supabase.from("combos").update(rest).eq("id", id);
+    comboErr = retry.error;
+  }
+
   if (comboErr) throw comboErr;
 
   if (items !== undefined) {

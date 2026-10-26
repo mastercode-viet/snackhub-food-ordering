@@ -24,9 +24,25 @@ export default function CartLine({
   // Combo không có option tuỳ biến — dòng tóm tắt thay bằng danh sách món con.
   // Sản phẩm lẻ thì tách topping ra dòng riêng có nhãn, vì topping là thứ
   // khách chủ động thêm và trả tiền thêm, không nên lẫn với option như size.
+  // Combo: hiển thị tóm tắt món con + lựa chọn của từng thành phần (nếu có).
   const optionSummary =
     item.kind === "combo"
-      ? item.items.map((i) => (i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name)).join(" · ")
+      ? [
+          item.items.map((i) => (i.quantity > 1 ? `${i.name} x${i.quantity}` : i.name)).join(" · "),
+          ...item.components
+            .filter((c) => c.options.length > 0)
+            .map(
+              (c) =>
+                `${c.productName}: ${c.options.map((o) => o.optionName).join(", ")}`,
+            ),
+          ...item.choices.map((c) =>
+            c.options.length > 0
+              ? `${c.groupName} - ${c.productName}: ${c.options.map((o) => o.optionName).join(", ")}`
+              : `${c.groupName}: ${c.productName}`,
+          ),
+        ]
+          .filter(Boolean)
+          .join(" · ")
       : item.options
           .filter((o) => o.source !== "topping")
           .map((o) => o.optionName)

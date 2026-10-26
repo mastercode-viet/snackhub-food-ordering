@@ -28,8 +28,14 @@ export function useCartSync(items: CartItem[]) {
     [productItems],
   );
   const optionIds = useMemo(
-    () => [...new Set(productItems.flatMap((i) => i.options.map((o) => o.optionId)))].sort(),
-    [productItems],
+    () =>
+      [
+        ...new Set([
+          ...productItems.flatMap((i) => i.options.map((o) => o.optionId)),
+          ...comboItems.flatMap((i) => i.components.flatMap((c) => c.options.map((o) => o.optionId))),
+        ]),
+      ].sort(),
+    [productItems, comboItems],
   );
   const comboIds = useMemo(
     () => [...new Set(comboItems.map((i) => i.comboId))].sort(),
@@ -70,6 +76,19 @@ function checkLine(item: CartItem, snapshot: CartSyncSnapshot): LineCheck {
     const combo = snapshot.combos[item.comboId];
     if (!combo) return { issue: { kind: "removed" }, blocking: true };
     if (!combo.is_available) return { issue: { kind: "sold_out" }, blocking: true };
+    const goneOptions = item.components
+      .flatMap((c) => c.options)
+      .concat(item.choices.flatMap((c) => c.options))
+      .filter((o) => {
+        const fresh = snapshot.options[o.optionId];
+        return !fresh || !fresh.is_available;
+      });
+    if (goneOptions.length > 0) {
+      return {
+        issue: { kind: "option_gone", names: goneOptions.map((o) => o.optionName) },
+        blocking: true,
+      };
+    }
     return { issue: null, blocking: false };
   }
 

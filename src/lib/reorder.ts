@@ -59,21 +59,65 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
         continue;
       }
 
+      // Kiểm tra các lựa chọn tuỳ biến (nếu có) còn tồn tại và còn bán.
+      const chosenOptionsByProduct = new Map<string, typeof line.options>();
+      for (const o of line.options) {
+        const pid = o.product_id;
+        if (!pid) continue;
+        const list = chosenOptionsByProduct.get(pid) ?? [];
+        list.push(o);
+        chosenOptionsByProduct.set(pid, list);
+      }
+
+      let invalid = false;
+      const components = line.combo_items_snapshot.map((ci) => {
+        const opts = chosenOptionsByProduct.get(ci.product_id) ?? [];
+        const chosen = opts.map((o) => optionById.get(o.option_id));
+        if (chosen.some((o) => !o || !o.is_available)) {
+          invalid = true;
+        }
+        const cartOptions = chosen
+          .filter((o): o is NonNullable<typeof o> => Boolean(o))
+          .map((o) => ({
+            groupId: o.group_id,
+            groupName: line.options.find((x) => x.option_id === o.id)?.group_name ?? "",
+            optionId: o.id,
+            optionName: o.name,
+            priceDelta: Number(o.price_delta),
+            source: o.source,
+          }));
+        const optionsPrice = cartOptions.reduce((s, o) => s + o.priceDelta, 0) * ci.quantity;
+        return {
+          productId: ci.product_id,
+          productName: ci.product_name,
+          componentQuantity: ci.quantity,
+          options: cartOptions,
+          optionsPrice,
+        };
+      });
+
+      if (invalid) {
+        skipped.push(line.product_name);
+        continue;
+      }
+
+      const optionsPriceTotal = components.reduce((s, c) => s + c.optionsPrice, 0);
+
       items.push({
         kind: "combo",
         comboId: combo.id,
         slug: combo.slug,
         name: combo.name,
         imageUrl: combo.image_url,
-        unitPrice: Number(combo.price),
-        // Tên món con lấy từ SNAPSHOT cũ (đủ dùng để hiển thị tóm tắt trong
-        // giỏ), không tra lại DB — khác với sản phẩm/option vì combo không
-        // có gì để "đổi giá theo lựa chọn", chỉ có is_available là đáng kiểm.
+        basePrice: Number(combo.price),
+        unitPrice: Number(combo.price) + optionsPriceTotal,
         items: line.combo_items_snapshot.map((i) => ({
           productId: i.product_id,
           name: i.product_name,
           quantity: i.quantity,
         })),
+        components,
+        choices: [],
         quantity: line.quantity,
         note: line.item_note,
       });

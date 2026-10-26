@@ -156,6 +156,7 @@ export type Database = {
           slug: string
           sort_order: number
           updated_at: string
+          choice_groups: Json
         }
         Insert: {
           created_at?: string
@@ -169,6 +170,7 @@ export type Database = {
           slug: string
           sort_order?: number
           updated_at?: string
+          choice_groups?: Json
         }
         Update: {
           created_at?: string
@@ -182,6 +184,7 @@ export type Database = {
           slug?: string
           sort_order?: number
           updated_at?: string
+          choice_groups?: Json
         }
         Relationships: []
       }

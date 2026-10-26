@@ -48,6 +48,8 @@ export async function fetchStoreOpen(): Promise<boolean> {
 // chỉ để có realtime — làm vậy là mở toàn bộ đơn của mọi người.
 
 export type OrderOptionView = {
+  product_id?: string | null;
+  product_name?: string;
   group_id: string;
   group_name: string;
   option_id: string;
@@ -332,6 +334,40 @@ export async function fetchProductBySlug(slug: string): Promise<ProductDetail | 
   return { ...rest, toppingGroups };
 }
 
+/** Món theo id — dùng khi cần chi tiết option/topping của sản phẩm thành phần combo. */
+export async function fetchProductById(id: string): Promise<ProductDetail | null> {
+  const { data, error } = await supabase
+    .from("products")
+    .select(
+      "*, categories(icon, name, slug), product_option_groups(*, product_options(*)), product_topping_groups(sort_order, topping_groups(*, topping_items(*)))",
+    )
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const row = data as ProductDetailRow;
+
+  row.product_option_groups.sort((a, b) => a.sort_order - b.sort_order);
+  for (const group of row.product_option_groups) {
+    group.product_options.sort((a, b) => a.sort_order - b.sort_order);
+  }
+
+  const toppingGroups = row.product_topping_groups
+    .slice()
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((link) => link.topping_groups)
+    .filter((group): group is ToppingGroupWithItems => group !== null);
+
+  for (const group of toppingGroups) {
+    group.topping_items.sort((a, b) => a.sort_order - b.sort_order);
+  }
+
+  const { product_topping_groups: _link, ...rest } = row;
+  return { ...rest, toppingGroups };
+}
+
 export async function fetchProducts(params: {
   categoryId?: string | null;
   search?: string;
@@ -415,6 +451,17 @@ export async function fetchCombos(): Promise<ComboWithItems[]> {
     .order("sort_order")
     .limit(COMBO_LIST_LIMIT);
 
+  if (error && /choice_groups/i.test(error.message ?? "")) {
+    const retry = await supabase
+      .from("combos")
+      .select("id, name, slug, description, price, image_url, is_available, is_featured, sort_order, created_at, updated_at, combo_items(quantity, products(id, name))")
+      .eq("is_available", true)
+      .order("sort_order")
+      .limit(COMBO_LIST_LIMIT);
+    if (retry.error) throw retry.error;
+    return (retry.data as ComboWithItems[]) ?? [];
+  }
+
   if (error) throw error;
   return data as ComboWithItems[];
 }
@@ -446,6 +493,16 @@ export async function fetchComboBySlug(slug: string): Promise<ComboDetail | null
     .eq("slug", slug)
     .maybeSingle();
 
+  if (error && /choice_groups/i.test(error.message ?? "")) {
+    const retry = await supabase
+      .from("combos")
+      .select("id, name, slug, description, price, image_url, is_available, is_featured, sort_order, created_at, updated_at, combo_items(quantity, products(id, name, image_url, base_price))")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (retry.error) throw retry.error;
+    return (retry.data as ComboDetail | null) ?? null;
+  }
+
   if (error) throw error;
   return data as ComboDetail | null;
 }
@@ -474,3 +531,13 @@ export async function fetchActiveBanners(): Promise<Tables<"banners">[]> {
   if (error) throw error;
   return data;
 }
+
+
+export type ComboChoiceGroup = {
+  id: string;
+  name: string;
+  min_select: number;
+  max_select: number;
+  sort_order: number;
+  items: Array<{ product_id: string; product_name?: string; quantity: number; sort_order?: number }>;
+};

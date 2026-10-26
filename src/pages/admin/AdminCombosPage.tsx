@@ -31,6 +31,7 @@ import {
   uploadProductImage,
   type AdminCombo,
   type AdminProduct,
+  type ComboChoiceGroup,
   type ComboFormValues,
   type ComboItemInput,
 } from "@/lib/adminQueries";
@@ -341,6 +342,7 @@ function ComboForm({
     is_available: combo?.is_available ?? true,
     is_featured: combo?.is_featured ?? false,
     sort_order: combo?.sort_order ?? 0,
+    choice_groups: (combo?.choice_groups as ComboChoiceGroup[] | null) ?? [],
   });
 
   const [items, setItems] = useState<ComboItemInput[]>(
@@ -351,6 +353,7 @@ function ComboForm({
     })) ?? [],
   );
 
+  const [choiceGroups, setChoiceGroups] = useState<ComboChoiceGroup[]>(values.choice_groups);
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string>("");
 
   function set<K extends keyof ComboFormValues>(key: K, value: ComboFormValues[K]) {
@@ -425,6 +428,7 @@ function ComboForm({
       slug: values.slug.trim() || toSlug(name),
       description: values.description?.trim() || null,
       image_url: values.image_url?.trim() || null,
+      choice_groups: choiceGroups,
     };
 
     if (isNew) {
@@ -630,6 +634,137 @@ function ComboForm({
               ))}
           </select>
         </div>
+      </div>
+
+      {/* Nhóm lựa chọn (chọn 1 trong nhiều) */}
+      <div className="flex flex-col gap-2 rounded-card bg-surface-container-low p-3 border border-outline-variant/60">
+        <div className="flex items-center justify-between">
+          <span className="text-label-md font-bold text-on-surface">Nhóm lựa chọn</span>
+          <button
+            type="button"
+            onClick={() =>
+              setChoiceGroups((g) => [
+                ...g,
+                {
+                  id: crypto.randomUUID(),
+                  name: "Chọn 1 món",
+                  min_select: 1,
+                  max_select: 1,
+                  sort_order: g.length,
+                  items: [],
+                },
+              ])
+            }
+            className="text-label-xs text-primary font-semibold"
+          >
+            + Thêm nhóm
+          </button>
+        </div>
+
+        {choiceGroups.map((group, gi) => (
+          <div key={group.id} className="flex flex-col gap-2 rounded-card bg-surface-container-lowest p-3 border border-outline-variant/40">
+            <div className="flex items-center gap-2">
+              <input
+                className={inputClass}
+                value={group.name}
+                onChange={(e) =>
+                  setChoiceGroups((g) =>
+                    g.map((x, i) => (i === gi ? { ...x, name: e.target.value } : x)),
+                  )
+                }
+                placeholder="Tên nhóm"
+              />
+              <button
+                type="button"
+                onClick={() => setChoiceGroups((g) => g.filter((_, i) => i !== gi))}
+                className="grid size-8 place-items-center rounded-full text-error hover:bg-error-container"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-label-xs">
+              <label className="flex items-center gap-1">
+                Min
+                <input
+                  type="number"
+                  min={0}
+                  className={`${inputClass} w-16`}
+                  value={group.min_select}
+                  onChange={(e) =>
+                    setChoiceGroups((g) =>
+                      g.map((x, i) => (i === gi ? { ...x, min_select: Number(e.target.value) || 0 } : x)),
+                    )
+                  }
+                />
+              </label>
+              <label className="flex items-center gap-1">
+                Max
+                <input
+                  type="number"
+                  min={1}
+                  className={`${inputClass} w-16`}
+                  value={group.max_select}
+                  onChange={(e) =>
+                    setChoiceGroups((g) =>
+                      g.map((x, i) => (i === gi ? { ...x, max_select: Number(e.target.value) || 1 } : x)),
+                    )
+                  }
+                />
+              </label>
+            </div>
+            <div className="flex flex-col gap-1">
+              {group.items.map((it, ii) => {
+                const p = products.find((prod) => prod.id === it.product_id);
+                return (
+                  <div key={it.product_id} className="flex items-center justify-between text-body-sm">
+                    <span>{p?.name ?? "Món đã xoá"}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setChoiceGroups((g) =>
+                          g.map((x, i) =>
+                            i === gi ? { ...x, items: x.items.filter((_, j) => j !== ii) } : x,
+                          ),
+                        )
+                      }
+                      className="text-error"
+                    >
+                      Xoá
+                    </button>
+                  </div>
+                );
+              })}
+              <select
+                className={`${inputClass} text-body-sm`}
+                value=""
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  const prod = products.find((p) => p.id === val);
+                  setChoiceGroups((g) =>
+                    g.map((x, i) =>
+                      i === gi
+                        ? {
+                            ...x,
+                            items: [...x.items, { product_id: val, product_name: prod?.name, quantity: 1, sort_order: x.items.length }],
+                          }
+                        : x,
+                    ),
+                  );
+                }}
+              >
+                <option value="">+ Thêm món vào nhóm…</option>
+                {products
+                  .filter((p) => !group.items.some((it) => it.product_id === p.id))
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-2 gap-3">

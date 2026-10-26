@@ -376,7 +376,21 @@ export default function OrderTrackingPage() {
                   </p>
                   {item.options.length > 0 && (
                     <p className="truncate text-body-sm text-on-surface-variant">
-                      {item.options.map((o) => o.option_name).join(", ")}
+                      {item.combo_id
+                        ? Object.entries(
+                            item.options.reduce<Record<string, string[]>>((acc, o) => {
+                              const key = o.product_id ?? "other";
+                              (acc[key] ??= []).push(o.option_name);
+                              return acc;
+                            }, {}),
+                          )
+                            .map(([pid, names]) => {
+                              const comp = item.combo_items_snapshot.find((c) => c.product_id === pid);
+                              const label = comp?.product_name ?? item.options.find((o) => o.product_id === pid)?.product_name ?? "";
+                              return label ? `${label}: ${names.join(", ")}` : names.join(", ");
+                            })
+                            .join(" · ")
+                        : item.options.map((o) => o.option_name).join(", ")}
                     </p>
                   )}
                   {item.item_note && (

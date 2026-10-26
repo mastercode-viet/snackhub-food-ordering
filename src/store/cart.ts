@@ -56,11 +56,30 @@ export type ComboLineItem = {
   quantity: number;
 };
 
+/** Lựa chọn tuỳ biến cho một thành phần trong combo (tái dùng CartOption). */
+export type ComboComponentSelection = {
+  productId: string;
+  productName: string;
+  componentQuantity: number;
+  options: CartOption[];
+  optionsPrice: number;
+};
+
 /**
- * Dòng combo — giá cố định, KHÔNG có option tuỳ biến. `items` là danh sách
- * món con để CartLine hiển thị tóm tắt (không phải nguồn tính giá — giá luôn
- * là `unitPrice` do combo quy định).
+ * Dòng combo — giá cơ bản cố định, CÓ THỂ có phụ phí option từ các thành
+ * phần. `components` lưu lựa chọn riêng cho từng thành phần.
  */
+/** Lựa chọn trong nhóm lựa chọn của combo. */
+export type ComboChoiceSelection = {
+  groupId: string;
+  groupName: string;
+  productId: string;
+  productName: string;
+  componentQuantity: number;
+  options: CartOption[];
+  optionsPrice: number;
+};
+
 export type ComboCartItem = {
   lineId: string;
   kind: "combo";
@@ -68,8 +87,11 @@ export type ComboCartItem = {
   slug: string;
   name: string;
   imageUrl: string | null;
+  basePrice: number;
   unitPrice: number;
   items: ComboLineItem[];
+  components: ComboComponentSelection[];
+  choices: ComboChoiceSelection[];
   quantity: number;
   note: string | null;
 };
@@ -84,7 +106,15 @@ export type NewCartItem = Omit<ProductCartItem, "lineId"> | Omit<ComboCartItem, 
  */
 function identityOf(item: NewCartItem): string {
   const note = item.note?.trim() ?? "";
-  if (item.kind === "combo") return `combo:${item.comboId}|${note}`;
+  if (item.kind === "combo") {
+    const compKey = item.components
+      .map((c) => `${c.productId}:${c.options.map((o) => o.optionId).sort().join(",")}`)
+      .join("|");
+    const choiceKey = item.choices
+      .map((c) => `${c.groupId}:${c.productId}:${c.options.map((o) => o.optionId).sort().join(",")}`)
+      .join("|");
+    return `combo:${item.comboId}|${compKey}|${choiceKey}|${note}`;
+  }
   const ids = item.options.map((o) => o.optionId).sort().join(",");
   return `product:${item.productId}|${ids}|${note}`;
 }
@@ -94,19 +124,29 @@ function identityOf(item: NewCartItem): string {
  * Combo không có option nên không cần bước "chọn" như ProductDetailPage —
  * bấm "Thêm vào giỏ" là gọi thẳng hàm này rồi addItem().
  */
-export function comboToCartItem(combo: ComboWithItems, quantity = 1): Omit<ComboCartItem, "lineId"> {
+export function comboToCartItem(
+  combo: ComboWithItems,
+  quantity = 1,
+  components: ComboComponentSelection[] = [],
+  choices: ComboChoiceSelection[] = [],
+): Omit<ComboCartItem, "lineId"> {
+  const items = combo.combo_items.map((i) => ({
+    productId: i.products?.id ?? "",
+    name: i.products?.name ?? "",
+    quantity: i.quantity,
+  }));
+  const optionsPrice = components.reduce((s, c) => s + c.optionsPrice, 0) + choices.reduce((s, c) => s + c.optionsPrice, 0);
   return {
     kind: "combo",
     comboId: combo.id,
     slug: combo.slug,
     name: combo.name,
     imageUrl: combo.image_url,
-    unitPrice: Number(combo.price),
-    items: combo.combo_items.map((i) => ({
-      productId: i.products?.id ?? "",
-      name: i.products?.name ?? "",
-      quantity: i.quantity,
-    })),
+    basePrice: Number(combo.price),
+    unitPrice: Number(combo.price) + optionsPrice,
+    items,
+    components,
+    choices,
     quantity,
     note: null,
   };
@@ -170,13 +210,8 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: "snackhub-cart",
-      version: 3,
-      // v1 chưa lưu categoryId; v2 chưa có "kind" (chưa có combo, mọi dòng
-      // đều là sản phẩm) — giỏ cũ trong localStorage vẫn phải dùng được.
-      // Dữ liệu cũ trong localStorage chưa chắc khớp CartItem hiện tại (đó
-      // chính là lý do cần migrate) — xử lý ở dạng lỏng, chỉ ép kiểu CartState
-      // ở bước trả về cuối cùng. Ép kiểu ngay từ đầu (như bản trước) khiến
-      // TypeScript tưởng nhầm input đã có "kind", vỡ type union mới.
+      version: 5,
+      // v1 chưa lưu categoryId; v2 chưa có "kind"; v3 combo chưa có basePrice/components.
       migrate: (persisted, version) => {
         let items = ((persisted as { items?: unknown[] })?.items ?? []) as Record<string, unknown>[];
         if (version < 2) {
@@ -184,6 +219,28 @@ export const useCartStore = create<CartState>()(
         }
         if (version < 3) {
           items = items.map((i) => ("kind" in i ? i : { ...i, kind: "product" }));
+        }
+        if (version < 4) {
+          items = items.map((i) =>
+            i.kind === "combo"
+              ? {
+                  ...i,
+                  basePrice: (i as Record<string, unknown>).basePrice ?? (i as Record<string, unknown>).unitPrice ?? 0,
+                  components: (i as Record<string, unknown>).components ?? [],
+                  items: (i as Record<string, unknown>).items ?? [],
+                }
+              : i,
+          );
+        }
+        if (version < 5) {
+          items = items.map((i) =>
+            i.kind === "combo"
+              ? {
+                  ...i,
+                  choices: (i as Record<string, unknown>).choices ?? [],
+                }
+              : i,
+          );
         }
         return { items } as CartState;
       },

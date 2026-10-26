@@ -42,6 +42,8 @@ interface BuiltItem {
   product_image_url: string | null;
   base_price: number;
   options: Array<{
+    product_id: string | null;
+    product_name?: string | null;
     group_id: string;
     group_name: string;
     option_id: string;
@@ -297,9 +299,14 @@ async function buildItems(
   const productLines = cart.filter((i) => i.kind === "product");
   const comboLines = cart.filter((i) => i.kind === "combo");
 
-  // ── Sản phẩm lẻ: y hệt logic cũ ─────────────────────────────────────────
   const productIds = [...new Set(productLines.map((i) => i.product_id))];
-  const optionIds = [...new Set(productLines.flatMap((i) => i.option_ids))];
+  const comboComponentProductIds = [...new Set(comboLines.flatMap((i) => (i.components ?? []).map((c) => c.product_id)))];
+  const optionIds = [
+    ...new Set([
+      ...productLines.flatMap((i) => i.option_ids),
+      ...comboLines.flatMap((i) => (i.components ?? []).flatMap((c) => c.option_ids)),
+    ]),
+  ];
 
   const { data: products, error: pErr } = await db
     .from("products")
@@ -314,11 +321,11 @@ async function buildItems(
     if (!p.is_available) return { error: "PRODUCT_UNAVAILABLE", message: `"${p.name}" đang tạm hết hàng.` };
   }
 
-  // Toàn bộ nhóm option của các món trong giỏ — cần để kiểm tra nhóm bắt buộc.
+  const groupProductIds = [...new Set([...productIds, ...comboComponentProductIds])];
   const { data: groups, error: gErr } = await db
     .from("product_option_groups")
     .select("id, product_id, name, is_required, min_select, max_select")
-    .in("product_id", productIds);
+    .in("product_id", groupProductIds);
   if (gErr) throw gErr;
   const groupById = new Map(groups!.map((g) => [g.id, g]));
 
@@ -360,7 +367,7 @@ async function buildItems(
       const { data: assigns, error: aErr } = await db
         .from("product_topping_groups")
         .select("product_id, topping_group_id")
-        .in("product_id", productIds)
+        .in("product_id", groupProductIds)
         .in("topping_group_id", toppingGroupIds);
       if (aErr) throw aErr;
       for (const a of assigns!) {
@@ -373,17 +380,26 @@ async function buildItems(
 
   // ── Combo: tra combo + món con, validate còn bán được ───────────────────
   const comboIds = [...new Set(comboLines.map((i) => i.combo_id))];
-  const comboById = new Map<string, { id: string; name: string; image_url: string | null; price: number; is_available: boolean }>();
+  const comboById = new Map<string, { id: string; name: string; image_url: string | null; price: number; is_available: boolean; choice_groups: unknown }>();
   const comboItemsByComboId = new Map<
     string,
     Array<{ product_id: string; name: string; quantity: number; is_available: boolean }>
   >();
 
   if (comboIds.length > 0) {
-    const { data: combos, error: cErr } = await db
+    let { data: combos, error: cErr } = await db
       .from("combos")
-      .select("id, name, image_url, price, is_available")
+      .select("id, name, image_url, price, is_available, choice_groups")
       .in("id", comboIds);
+
+    if (cErr && /choice_groups/i.test(cErr.message ?? "")) {
+      const retry = await db
+        .from("combos")
+        .select("id, name, image_url, price, is_available")
+        .in("id", comboIds);
+      combos = retry.data;
+      cErr = retry.error;
+    }
     if (cErr) throw cErr;
     for (const c of combos!) comboById.set(c.id, c);
 
@@ -443,6 +459,50 @@ async function buildItems(
     }
   }
 
+  // Bổ sung nhóm option/topping cho các sản phẩm thành phần combo (để validate
+  // lựa chọn tuỳ biến của combo).
+  const relatedProductNameById = new Map<string, string>();
+    ...new Set([...comboItemsByComboId.values()].flatMap((rows) => rows.map((r) => r.product_id))),
+  ];
+  const choiceProductIds = [
+    ...new Set(
+      [...comboById.values()].flatMap((c) => {
+        const groups = Array.isArray(c.choice_groups) ? c.choice_groups : [];
+        return groups.flatMap((g: { items?: Array<{ product_id: string }> }) =>
+          (g.items ?? []).map((it) => it.product_id),
+        );
+      }),
+    ),
+  ];
+  const allComboRelatedProductIds = [...new Set([...comboItemProductIds, ...choiceProductIds])];
+
+  if (allComboRelatedProductIds.length > 0) {
+    const { data: relatedProducts } = await db
+      .from("products")
+      .select("id, name")
+      .in("id", allComboRelatedProductIds);
+    for (const p of relatedProducts ?? []) relatedProductNameById.set(p.id, p.name);
+
+    const { data: extraGroups } = await db
+      .from("product_option_groups")
+      .select("id, product_id, name, is_required, min_select, max_select")
+      .in("product_id", allComboRelatedProductIds);
+    for (const g of extraGroups ?? []) groupById.set(g.id, g);
+
+    if (toppingGroupById.size > 0) {
+      const { data: extraAssigns } = await db
+        .from("product_topping_groups")
+        .select("product_id, topping_group_id")
+        .in("product_id", allComboRelatedProductIds)
+        .in("topping_group_id", [...toppingGroupById.keys()]);
+      for (const a of extraAssigns ?? []) {
+        const set = toppingGroupIdsByProduct.get(a.product_id) ?? new Set<string>();
+        set.add(a.topping_group_id);
+        toppingGroupIdsByProduct.set(a.product_id, set);
+      }
+    }
+  }
+
   // ── Dựng từng dòng theo ĐÚNG thứ tự giỏ hàng gốc ─────────────────────────
   const items: BuiltItem[] = [];
 
@@ -450,16 +510,162 @@ async function buildItems(
     if (line.kind === "combo") {
       const combo = comboById.get(line.combo_id)!;
       const comboItems = comboItemsByComboId.get(combo.id) ?? [];
-      const unitPrice = Number(combo.price);
+      const comboItemByProductId = new Map(comboItems.map((ci) => [ci.product_id, ci]));
+
+      // Validate lựa chọn tuỳ biến cho từng thành phần (nếu có).
+      const seenComponents = new Set<string>();
+      const globalCountByGroup = new Map<string, number>();
+      const chosen: BuiltItem["options"] = [];
+      let comboOptionsPrice = 0;
+
+      for (const comp of line.components ?? []) {
+        if (seenComponents.has(comp.product_id)) {
+          return { error: "OPTION_MISMATCH", message: "Trùng thành phần trong combo." };
+        }
+        seenComponents.add(comp.product_id);
+
+        const comboItem = comboItemByProductId.get(comp.product_id);
+        if (!comboItem) {
+          return { error: "OPTION_MISMATCH", message: "Thành phần không thuộc combo đã chọn." };
+        }
+
+        for (const optId of comp.option_ids) {
+          const opt = optionById.get(optId);
+          if (opt) {
+            if (!opt.is_available) {
+              return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${opt.name}\" đang tạm hết.` };
+            }
+            const group = groupById.get(opt.group_id);
+            if (!group || group.product_id !== comp.product_id) {
+              return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
+            }
+            chosen.push({
+              product_id: comp.product_id,
+              product_name: comboItem.name,
+              group_id: group.id,
+              group_name: group.name,
+              option_id: opt.id,
+              option_name: opt.name,
+              price_delta: Number(opt.price_delta),
+            });
+            globalCountByGroup.set(group.id, (globalCountByGroup.get(group.id) ?? 0) + 1);
+            comboOptionsPrice += Number(opt.price_delta) * comboItem.quantity;
+            continue;
+          }
+
+          const topping = toppingById.get(optId);
+          if (!topping) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
+          if (!topping.is_available) {
+            return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${topping.name}\" đang tạm hết.` };
+          }
+          const toppingGroup = toppingGroupById.get(topping.group_id);
+          if (!toppingGroup) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
+          const allowed = toppingGroupIdsByProduct.get(comp.product_id)?.has(toppingGroup.id);
+          if (!allowed) {
+            return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
+          }
+          chosen.push({
+            product_id: comp.product_id,
+            product_name: comboItem.name,
+            group_id: toppingGroup.id,
+            group_name: toppingGroup.name,
+            option_id: topping.id,
+            option_name: topping.name,
+            price_delta: Number(topping.price_delta),
+          });
+          // topping không đếm countByGroup (tuỳ chọn)
+          comboOptionsPrice += Number(topping.price_delta) * comboItem.quantity;
+        }
+      }
+
+      // Nhóm bắt buộc phải chọn đủ cho từng thành phần combo.
+      for (const ci of comboItems) {
+        for (const g of groups!.filter((gr) => gr.product_id === ci.product_id)) {
+          const n = globalCountByGroup.get(g.id) ?? 0;
+          if (g.is_required && n < Math.max(1, g.min_select)) {
+            return { error: "OPTION_REQUIRED", message: `Vui lòng chọn \"${g.name}\".` };
+          }
+          if (n > g.max_select) {
+            return { error: "OPTION_TOO_MANY", message: `\"${g.name}\" chỉ được chọn tối đa ${g.max_select}.` };
+          }
+        }
+      }
+
+      // ── Nhóm lựa chọn (choice groups) ───────────────────────────────────────
+      const choiceGroups = Array.isArray(combo.choice_groups) ? combo.choice_groups : [];
+      const choiceCountByGroup = new Map<string, number>();
+      for (const ch of line.choices ?? []) {
+        choiceCountByGroup.set(ch.group_id, (choiceCountByGroup.get(ch.group_id) ?? 0) + 1);
+      }
+
+      for (const g of choiceGroups as Array<{ id: string; name: string; min_select: number; max_select: number; items: Array<{ product_id: string; quantity: number }> }>) {
+        const selected = (line.choices ?? []).filter((c) => c.group_id === g.id);
+        const min = Math.max(0, Number(g.min_select) || 0);
+        const max = Math.max(min || 1, Number(g.max_select) || 1);
+        if (selected.length < min) {
+          return { error: "CHOICE_REQUIRED", message: `Vui lòng chọn ít nhất ${min} trong \"${g.name}\".` };
+        }
+        if (selected.length > max) {
+          return { error: "CHOICE_TOO_MANY", message: `\"${g.name}\" chỉ được chọn tối đa ${max}.` };
+        }
+        for (const ch of selected) {
+          const allowed = (g.items ?? []).some((it) => it.product_id === ch.product_id);
+          if (!allowed) {
+            return { error: "CHOICE_MISMATCH", message: "Món đã chọn không thuộc nhóm lựa chọn." };
+          }
+          const groupItem = (g.items ?? []).find((it) => it.product_id === ch.product_id)!;
+          // validate options for chosen product
+          for (const optId of ch.option_ids ?? []) {
+            const opt = optionById.get(optId);
+            if (opt) {
+              if (!opt.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${opt.name}\" đang tạm hết.` };
+              const grp = groupById.get(opt.group_id);
+              if (!grp || grp.product_id !== ch.product_id) {
+                return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
+              }
+              chosen.push({
+                product_id: ch.product_id,
+                product_name: relatedProductNameById.get(ch.product_id) ?? null,
+                group_id: grp.id,
+                group_name: grp.name,
+                option_id: opt.id,
+                option_name: opt.name,
+                price_delta: Number(opt.price_delta),
+              });
+              comboOptionsPrice += Number(opt.price_delta) * (groupItem.quantity ?? 1);
+              continue;
+            }
+            const topping = toppingById.get(optId);
+            if (!topping) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
+            if (!topping.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${topping.name}\" đang tạm hết.` };
+            const toppingGroup = toppingGroupById.get(topping.group_id);
+            if (!toppingGroup) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
+            const allowedTopping = toppingGroupIdsByProduct.get(ch.product_id)?.has(toppingGroup.id);
+            if (!allowedTopping) return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
+            chosen.push({
+              product_id: ch.product_id,
+              product_name: relatedProductNameById.get(ch.product_id) ?? null,
+              group_id: toppingGroup.id,
+              group_name: toppingGroup.name,
+              option_id: topping.id,
+              option_name: topping.name,
+              price_delta: Number(topping.price_delta),
+            });
+            comboOptionsPrice += Number(topping.price_delta) * (groupItem.quantity ?? 1);
+          }
+        }
+      }
+
+      const unitPrice = Number(combo.price) + comboOptionsPrice;
 
       items.push({
         product_id: null,
         combo_id: combo.id,
         product_name: combo.name,
         product_image_url: combo.image_url,
-        base_price: unitPrice,
-        options: [],
-        options_price: 0,
+        base_price: Number(combo.price),
+        options: chosen,
+        options_price: comboOptionsPrice,
         unit_price: unitPrice,
         quantity: line.quantity,
         line_total: unitPrice * line.quantity,
@@ -490,6 +696,8 @@ async function buildItems(
         }
 
         chosen.push({
+          product_id: line.product_id,
+          product_name: product.name,
           group_id: group.id,
           group_name: group.name,
           option_id: opt.id,
@@ -513,6 +721,8 @@ async function buildItems(
       }
 
       chosen.push({
+        product_id: line.product_id,
+        product_name: product.name,
         group_id: toppingGroup.id,
         group_name: toppingGroup.name,
         option_id: topping.id,

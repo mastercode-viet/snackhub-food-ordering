@@ -177,7 +177,7 @@ export default function CheckoutPage() {
         desired_delivery_time: scheduled && !inStore ? desiredTimeToDate(desiredTime).toISOString() : undefined,
         items: items.map((i) =>
           i.kind === "combo"
-            ? { kind: "combo" as const, combo_id: i.comboId, quantity: i.quantity, item_note: i.note ?? undefined }
+            ? { kind: "combo" as const, combo_id: i.comboId, quantity: i.quantity, item_note: i.note ?? undefined, components: i.components.map((c) => ({ product_id: c.productId, option_ids: c.options.map((o) => o.optionId) })), choices: i.choices.map((c) => ({ group_id: c.groupId, product_id: c.productId, option_ids: c.options.map((o) => o.optionId) })) }
             : {
                 kind: "product" as const,
                 product_id: i.productId,

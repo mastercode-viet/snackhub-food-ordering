@@ -74,6 +74,23 @@ export const comboCartItemSchema = z.object({
   combo_id: z.string().uuid(),
   quantity: z.number().int().min(1).max(99),
   item_note: z.string().trim().max(200).optional(),
+  components: z
+    .array(
+      z.object({
+        product_id: z.string().uuid(),
+        option_ids: z.array(z.string().uuid()).max(20).default([]),
+      }),
+    )
+    .default([]),
+  choices: z
+    .array(
+      z.object({
+        group_id: z.string().uuid(),
+        product_id: z.string().uuid(),
+        option_ids: z.array(z.string().uuid()).max(20).default([]),
+      }),
+    )
+    .default([]),
 });
 
 export const cartItemSchema = z.discriminatedUnion("kind", [
