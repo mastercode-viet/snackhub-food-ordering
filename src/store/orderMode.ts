@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -15,14 +15,16 @@ export type OrderMode = "delivery" | "in_store";
 
 type OrderModeState = {
   mode: OrderMode;
-  setMode: (mode: OrderMode) => void;
+  chosen: boolean;
+  setMode: (mode: OrderMode, chosen?: boolean) => void;
 };
 
 export const useOrderModeStore = create<OrderModeState>()(
   persist(
     (set) => ({
       mode: "delivery",
-      setMode: (mode) => set({ mode }),
+      chosen: false,
+      setMode: (mode, chosen = true) => set({ mode, chosen }),
     }),
     { name: "snackhub-order-mode", storage: createJSONStorage(() => sessionStorage) },
   ),
@@ -36,6 +38,15 @@ export function useOrderModeFromUrl() {
   const setMode = useOrderModeStore((s) => s.setMode);
   const param = params.get("mode");
   useEffect(() => {
-    if (param === "in_store" || param === "delivery") setMode(param);
+    if (param === "in_store" || param === "delivery") setMode(param, true);
   }, [param, setMode]);
+}
+
+export function useShouldChooseOrderMode() {
+  const location = useLocation();
+  const chosen = useOrderModeStore((s) => s.chosen);
+  const params = new URLSearchParams(location.search);
+  const hasModeParam = params.get("mode") === "in_store" || params.get("mode") === "delivery";
+  const isAdmin = location.pathname.startsWith("/admin");
+  return !isAdmin && !chosen && !hasModeParam;
 }
