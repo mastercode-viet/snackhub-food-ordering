@@ -55,7 +55,7 @@ interface BuiltItem {
   quantity: number;
   line_total: number;
   item_note: string | null;
-  combo_items_snapshot: Array<{ product_id: string; product_name: string; quantity: number; is_choice?: boolean; group_name?: string | null }>;
+  combo_items_snapshot: Array<{ product_id: string; product_name: string; quantity: number; is_choice?: boolean; group_name?: string | null; group_id?: string | null }>;
 }
 
 Deno.serve(async (req) => {
@@ -305,6 +305,7 @@ async function buildItems(
     ...new Set([
       ...productLines.flatMap((i) => i.option_ids),
       ...comboLines.flatMap((i) => (i.components ?? []).flatMap((c) => c.option_ids)),
+      ...comboLines.flatMap((i) => (i.choices ?? []).flatMap((c) => c.option_ids)),
     ]),
   ];
 
@@ -461,9 +462,10 @@ async function buildItems(
 
   // Bổ sung nhóm option/topping cho các sản phẩm thành phần combo (để validate
   // lựa chọn tuỳ biến của combo).
-  const relatedProductNameById = new Map<string, string>();
+  const comboItemProductIds = [
     ...new Set([...comboItemsByComboId.values()].flatMap((rows) => rows.map((r) => r.product_id))),
   ];
+  const relatedProductNameById = new Map<string, string>();
   const choiceProductIds = [
     ...new Set(
       [...comboById.values()].flatMap((c) => {
@@ -622,6 +624,7 @@ async function buildItems(
             quantity: groupItem.quantity ?? 1,
             is_choice: true,
             group_name: g.name,
+            group_id: g.id,
           });
           // validate options for chosen product
           for (const optId of ch.option_ids ?? []) {

@@ -380,7 +380,7 @@ export default function OrderTrackingPage() {
                         ? Object.entries(
                             item.options.reduce<Record<string, string[]>>((acc, o) => {
                               const key = o.product_id ?? "other";
-                              (acc[key] ??= []).push(o.option_name);
+                              (acc[key] ??= []).push(o.option_name + (o.price_delta ? ` (+${formatVnd(o.price_delta)})` : ""));
                               return acc;
                             }, {}),
                           )
@@ -390,9 +390,32 @@ export default function OrderTrackingPage() {
                               return label ? `${label}: ${names.join(", ")}` : names.join(", ");
                             })
                             .join(" · ")
-                        : item.options.map((o) => o.option_name).join(", ")}
+                        : item.options.map((o) => o.option_name + (o.price_delta ? ` (+${formatVnd(o.price_delta)})` : "")).join(", ")}
                     </p>
                   )}
+                   {item.combo_items_snapshot.length > 0 && (
+                     <div className="mt-0.5 flex flex-col gap-0.5">
+                       {item.combo_items_snapshot.filter((c) => !c.is_choice).length > 0 && (
+                         <p className="text-body-sm text-on-surface-variant">
+                           <span className="font-semibold text-on-surface">Thành phần:</span>{" "}
+                           {item.combo_items_snapshot
+                             .filter((c) => !c.is_choice)
+                             .map((c) => `${c.quantity}× ${c.product_name}`)
+                             .join(" · ")}
+                         </p>
+                       )}
+                       {item.combo_items_snapshot.filter((c) => c.is_choice).length > 0 && (
+                         <p className="text-body-sm text-on-surface-variant">
+                           <span className="font-semibold text-on-surface">Khách chọn:</span>{" "}
+                           {item.combo_items_snapshot
+                             .filter((c) => c.is_choice)
+                             .map((c) => `${c.quantity}× ${c.product_name}${c.group_name ? ` (${c.group_name})` : ""}`)
+                             .join(" · ")}
+                         </p>
+                       )}
+                     </div>
+                   )}
+
                   {item.item_note && (
                     <p className="truncate text-body-sm italic text-on-surface-variant/80">
                       {item.item_note}

@@ -64,6 +64,7 @@ export type ComboItemSnapshot = {
   quantity: number;
   is_choice?: boolean;
   group_name?: string | null;
+  group_id?: string | null;
 };
 
 export type OrderItemView = {

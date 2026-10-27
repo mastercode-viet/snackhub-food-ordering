@@ -59,7 +59,7 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
         continue;
       }
 
-      // Kiểm tra các lựa chọn tuỳ biến (nếu có) còn tồn tại và còn bán.
+       // Kiểm tra các lựa chọn tuỳ biến (nếu có) còn tồn tại và còn bán.
       const chosenOptionsByProduct = new Map<string, typeof line.options>();
       for (const o of line.options) {
         const pid = o.product_id;
@@ -70,7 +70,10 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
       }
 
       let invalid = false;
-      const components = line.combo_items_snapshot.map((ci) => {
+      const fixedSnapshots = line.combo_items_snapshot.filter((ci) => !ci.is_choice);
+      const choiceSnapshots = line.combo_items_snapshot.filter((ci) => ci.is_choice);
+
+      const components = fixedSnapshots.map((ci) => {
         const opts = chosenOptionsByProduct.get(ci.product_id) ?? [];
         const chosen = opts.map((o) => optionById.get(o.option_id));
         if (chosen.some((o) => !o || !o.is_available)) {
@@ -96,12 +99,45 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
         };
       });
 
+      const choices = choiceSnapshots
+        .filter((ci) => Boolean(ci.group_id))
+        .map((ci) => {
+          const opts = chosenOptionsByProduct.get(ci.product_id) ?? [];
+          const chosen = opts.map((o) => optionById.get(o.option_id));
+          if (chosen.some((o) => !o || !o.is_available)) {
+            invalid = true;
+          }
+          const cartOptions = chosen
+            .filter((o): o is NonNullable<typeof o> => Boolean(o))
+            .map((o) => ({
+              groupId: o.group_id,
+              groupName: line.options.find((x) => x.option_id === o.id)?.group_name ?? "",
+              optionId: o.id,
+              optionName: o.name,
+              priceDelta: Number(o.price_delta),
+              source: o.source,
+            }));
+          const groupItemQuantity = ci.quantity ?? 1;
+          const optionsPrice = cartOptions.reduce((s, o) => s + o.priceDelta, 0) * groupItemQuantity;
+          return {
+            groupId: ci.group_id as string,
+            groupName: ci.group_name ?? "",
+            productId: ci.product_id,
+            productName: ci.product_name,
+            componentQuantity: groupItemQuantity,
+            options: cartOptions,
+            optionsPrice,
+          };
+        });
+
       if (invalid) {
         skipped.push(line.product_name);
         continue;
       }
 
-      const optionsPriceTotal = components.reduce((s, c) => s + c.optionsPrice, 0);
+      const optionsPriceTotal =
+        components.reduce((s, c) => s + c.optionsPrice, 0) +
+        choices.reduce((s, c) => s + c.optionsPrice, 0);
 
       items.push({
         kind: "combo",
@@ -117,7 +153,7 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
           quantity: i.quantity,
         })),
         components,
-        choices: [],
+        choices,
         quantity: line.quantity,
         note: line.item_note,
       });
