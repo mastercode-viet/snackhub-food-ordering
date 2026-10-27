@@ -462,7 +462,7 @@ export default function CheckoutPage() {
               className="flex h-14 w-full items-center justify-between rounded-full bg-primary px-5 text-on-primary shadow-cta-lg transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none disabled:active:scale-100"
             >
               <span className="text-label-lg font-bold">
-                {submitting ? "Đang gửi đơn…" : "Đặt hàng ngay"}
+                {submitting ? "Đang gửi đơn…" : "Chốt đơn nè!"}
               </span>
               <span className="text-headline-sm font-extrabold">{formatVnd(total)}</span>
             </button>

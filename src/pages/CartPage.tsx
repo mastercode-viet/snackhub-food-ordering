@@ -216,7 +216,7 @@ export default function CartPage() {
                 className="flex h-14 w-full items-center justify-between rounded-full bg-inverse-surface px-6 text-inverse-on-surface shadow-cta transition-all disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none"
               >
                 <span className="flex items-center gap-2 text-label-lg font-bold">
-                  Đặt hàng ngay
+                  Chốt đơn nè!
                   <ArrowRight size={18} strokeWidth={2.6} />
                 </span>
                 <span className="text-headline-sm font-black text-primary-fixed">{formatVnd(total)}</span>
