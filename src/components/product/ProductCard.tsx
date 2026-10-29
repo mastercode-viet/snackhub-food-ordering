@@ -33,8 +33,8 @@ export default function ProductCard({ product }: { product: ProductWithCategory 
           src={product.image_url}
           alt={product.name}
           fallbackIcon={product.categories?.icon}
-          className={`h-32 w-full md:h-36 ${soldOut ? "opacity-45 grayscale" : ""}`}
-          imgClassName="transition-transform duration-500 ease-out group-hover:scale-108"
+          className={`aspect-[3/4] w-full ${soldOut ? "opacity-45 grayscale" : ""}`}
+          imgClassName="object-contain transition-transform duration-500 ease-out group-hover:scale-105"
         />
       </div>
 

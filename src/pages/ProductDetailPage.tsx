@@ -118,6 +118,7 @@ export default function ProductDetailPage() {
               alt={product.name}
               fallbackIcon={product.categories?.icon}
               className={`h-72 w-full md:h-[26rem] ${product.is_available ? "" : "grayscale"}`}
+              imgClassName="object-contain"
             />
           </div>
 

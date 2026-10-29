@@ -380,9 +380,9 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
             )}
           </section>
 
-          <section className="flex flex-col gap-space-sm rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
+          {items.length > 0 && (
+            <section className="flex flex-col gap-space-sm rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
             <h2 className="text-headline-sm font-bold text-on-surface">Gồm những món</h2>
-
             <ul className="flex flex-col gap-3">
               {items.map((item) => {
                 const pid = item.products.id;
@@ -429,6 +429,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
               })}
             </ul>
           </section>
+          )}
 
           {choiceGroups.length > 0 && (
             <section className="flex flex-col gap-space-sm rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
