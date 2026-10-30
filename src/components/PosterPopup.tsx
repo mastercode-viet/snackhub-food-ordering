@@ -1,22 +1,26 @@
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 
 const STORAGE_KEY = "snackhub-poster-seen";
 
 export default function PosterPopup() {
+  const location = useLocation();
   const [open, setOpen] = useState(false);
 
+  const isAdmin = location.pathname.startsWith("/admin");
+
   useEffect(() => {
+    if (isAdmin) return;
     try {
       if (sessionStorage.getItem(STORAGE_KEY) === "1") return;
     } catch {
       // ignore
     }
-    // Slight delay so the page renders first.
     const t = window.setTimeout(() => setOpen(true), 300);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [isAdmin]);
 
   function close() {
     setOpen(false);
@@ -26,6 +30,8 @@ export default function PosterPopup() {
       // ignore
     }
   }
+
+  if (isAdmin) return null;
 
   return (
     <AnimatePresence>
