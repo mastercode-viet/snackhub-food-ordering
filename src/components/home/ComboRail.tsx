@@ -88,9 +88,16 @@ function ComboCard({
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const chips = combo.combo_items
-    .filter((i): i is typeof i & { products: NonNullable<typeof i.products> } => Boolean(i.products))
-    .map((i) => (i.quantity > 1 ? `${i.products.name} x${i.quantity}` : i.products.name));
+  const chips = [
+    ...combo.combo_items
+      .filter((i): i is typeof i & { products: NonNullable<typeof i.products> } => Boolean(i.products))
+      .map((i) => (i.quantity > 1 ? `${i.products.name} x${i.quantity}` : i.products.name)),
+    ...(Array.isArray(combo.choice_groups)
+      ? (combo.choice_groups as Array<{ name: string; items: Array<{ product_name: string }> }>).map(
+          (g) => `${g.name.trim()} (lựa chọn)`,
+        )
+      : []),
+  ];
   const shownChips = chips.slice(0, MAX_ITEM_CHIPS);
   const extraCount = chips.length - shownChips.length;
   // Ngoài món chính, combo còn cho chọn món nước — card phải nói rõ chọn được gì.

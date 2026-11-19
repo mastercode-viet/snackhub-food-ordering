@@ -21,6 +21,7 @@ import type { AdminOutletContext } from "@/routes/AdminLayout";
 import {
   confirmStaffPayroll,
   createStaffAccount,
+  deleteStaffProfile,
   fetchAllOpenTimeLogs,
   fetchPayrollForMonth,
   fetchPayrollForStaff,
@@ -323,6 +324,7 @@ function StaffDetailPanel({
   const [role, setRole] = useState<StaffProfile["role"]>(staff.role);
   const [hourlyRate, setHourlyRate] = useState(staff.hourly_rate);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const dirty =
     fullName.trim() !== staff.full_name ||
@@ -361,6 +363,22 @@ function StaffDetailPanel({
       onReload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không cập nhật được, thử lại nhé.");
+    }
+  }
+
+
+  async function handleDelete() {
+    if (!window.confirm(`Xoá nhân viên ${staff.full_name}? Hành động này không thể hoàn tác.`)) return;
+    setDeleting(true);
+    try {
+      await deleteStaffProfile(staff.id);
+      toast.success(`Đã xoá ${staff.full_name}.`);
+      onClose();
+      onReload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không xoá được, thử lại nhé.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -425,6 +443,14 @@ function StaffDetailPanel({
           className="min-h-[44px] rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:opacity-50"
         >
           {saving ? "Đang lưu…" : "Lưu thay đổi"}
+        </button>
+        <button
+          type="button"
+          disabled={deleting}
+          onClick={() => void handleDelete()}
+          className="min-h-[44px] rounded-card border border-error/40 bg-error-container px-4 text-label-lg font-semibold text-on-error-container shadow-card transition-transform active:scale-[0.99] disabled:opacity-50"
+        >
+          {deleting ? "Đang xoá…" : "Xoá nhân viên"}
         </button>
       </div>
 

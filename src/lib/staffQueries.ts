@@ -143,6 +143,17 @@ export async function setStaffActive(id: string, isActive: boolean): Promise<voi
   if (error) throw error;
 }
 
+
+export async function deleteStaffProfile(id: string): Promise<void> {
+  const { error } = await supabase.from("staff_profiles").delete().eq("id", id);
+  if (error) {
+    if (error.code === "23503") {
+      throw new Error("Không xoá được: nhân viên này còn dữ liệu chấm công/lương. Hãy khoá tài khoản thay vì xoá.");
+    }
+    throw new Error(error.message);
+  }
+}
+
 export async function updateStaffProfile(
   id: string,
   patch: Partial<Pick<StaffProfile, "full_name" | "phone" | "bank_account" | "role" | "hourly_rate">>,

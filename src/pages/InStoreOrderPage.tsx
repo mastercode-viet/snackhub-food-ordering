@@ -45,7 +45,7 @@ export default function InStoreOrderPage() {
         </span>
         <div>
           <h1 className="text-headline-md text-on-surface">Đặt món thành công!</h1>
-          <p className="mt-1 text-body-md text-on-surface-variant">Đưa mã này cho nhân viên tại quầy</p>
+          <p className="mt-1 text-body-md text-on-surface-variant">Cám ơn thượng đế đã ghé chơi, thượng đế chờ xíu cho nhân viên làm đồ nha</p>
         </div>
 
         <div className="w-full rounded-card border-2 border-inverse-surface px-4 py-5">

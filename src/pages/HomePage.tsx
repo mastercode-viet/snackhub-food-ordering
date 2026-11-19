@@ -76,7 +76,7 @@ export default function HomePage() {
     ? `Kết quả cho "${debouncedSearch.trim()}"`
     : activeCategory
       ? activeCategory.name
-      : "Món ăn vặt thịnh hành";
+      : "Món ăn ngon hơn nYc";
 
   return (
     <div className="pt-safe">
