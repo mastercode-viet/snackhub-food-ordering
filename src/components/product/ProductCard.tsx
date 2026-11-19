@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { motion } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
-import ToppingSheet from "@/components/product/ToppingSheet";
+import ProductOptionSheet from "@/components/product/ProductOptionSheet";
 import { discountBadgeLabel, discountedPrice, formatVnd } from "@/lib/format";
 import type { ProductWithCategory } from "@/lib/queries";
 
@@ -114,7 +114,7 @@ export default function ProductCard({ product }: { product: ProductWithCategory 
       </motion.div>
 
       {sheetOpen && (
-        <ToppingSheet slug={product.slug} onClose={() => setSheetOpen(false)} />
+        <ProductOptionSheet slug={product.slug} onClose={() => setSheetOpen(false)} />
       )}
     </>
   );

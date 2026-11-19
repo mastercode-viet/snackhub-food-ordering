@@ -18,6 +18,7 @@ import NotFoundPage from "@/pages/NotFoundPage";
 // Khu vực Admin tách khỏi bundle khách: khách không bao giờ tải màn quản trị.
 const AdminLayout = lazy(() => import("@/routes/AdminLayout"));
 const AdminToppingsPage = lazy(() => import("@/pages/admin/AdminToppingsPage"));
+const AdminVariantsPage = lazy(() => import("@/pages/admin/AdminVariantsPage"));
 const AdminOrdersPage = lazy(() => import("@/pages/admin/AdminOrdersPage"));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/AdminDashboardPage"));
 const AdminCatalogPage = lazy(() => import("@/pages/admin/AdminCatalogPage"));
@@ -70,6 +71,7 @@ const router = createBrowserRouter([
           { path: "combos", element: <AdminCombosPage /> },
           { path: "khuyen-mai", element: <AdminDiscountCodesPage /> },
           { path: "toppings", element: <AdminToppingsPage /> },
+          { path: "bien-the", element: <AdminVariantsPage /> },
           { path: "banner", element: <AdminBannersPage /> },
           { path: "nhan-su", element: <AdminStaffPage /> },
           { path: "ca-lam", element: <AdminShiftsPage /> },

@@ -55,6 +55,12 @@ export type OrderOptionView = {
   option_id: string;
   option_name: string;
   price_delta: number;
+  quantity?: number;
+  /** Có từ đơn tạo bởi create-order mới. Đơn cũ không có → coi là cộng thêm. */
+  price_mode?: "delta" | "replace";
+  source?: "option" | "topping";
+  /** Đơn giá × số lượng, do server chốt lúc đặt. */
+  line_price?: number;
 };
 
 /** Một món con nằm trong combo, snapshot tại thời điểm đặt. */
@@ -216,6 +222,23 @@ export async function fetchSuggestions(
   return data as ProductWithCategory[];
 }
 
+/**
+ * Một lựa chọn đang có trong giỏ, kèm cách nó cộng vào giá.
+ *
+ * `price_mode` của NHÓM là bắt buộc: biến thể/kích cỡ thay giá gốc còn topping
+ * thì cộng thêm. Thiếu thông tin này thì client tính ra một con số khác hẳn
+ * create-order và tự báo "đổi giá" sai.
+ */
+export type CartSyncOption = {
+  id: string;
+  name: string;
+  price_delta: number;
+  is_available: boolean;
+  group_id: string;
+  price_mode: "delta" | "replace";
+  source?: "topping";
+};
+
 /** Ảnh chụp hiện trạng của các món/lựa chọn/combo đang nằm trong giỏ. */
 export type CartSyncSnapshot = {
   products: Record<
@@ -225,7 +248,7 @@ export type CartSyncSnapshot = {
       "id" | "name" | "base_price" | "discount_type" | "discount_value" | "is_available"
     >
   >;
-  options: Record<string, Pick<Tables<"product_options">, "id" | "name" | "price_delta" | "is_available">>;
+  options: Record<string, CartSyncOption>;
   combos: Record<string, Pick<Tables<"combos">, "id" | "name" | "price" | "is_available">>;
 };
 
@@ -252,7 +275,7 @@ export async function fetchCartSync(
     optionIds.length > 0
       ? supabase
           .from("product_options")
-          .select("id, name, price_delta, is_available")
+          .select("id, name, price_delta, is_available, group_id")
           .in("id", optionIds)
       : Promise.resolve({ data: [], error: null }),
     comboIds.length > 0
@@ -265,7 +288,10 @@ export async function fetchCartSync(
   if (comboRes.error) throw comboRes.error;
 
   for (const p of productRes.data ?? []) snapshot.products[p.id] = p;
-  for (const o of optionRes.data ?? []) snapshot.options[o.id] = o;
+  for (const o of optionRes.data ?? []) {
+    // price_mode thật được điền ở bước tra nhóm bên dưới.
+    snapshot.options[o.id] = { ...o, price_mode: "delta" };
+  }
   for (const c of comboRes.data ?? []) snapshot.combos[c.id] = c;
 
   // Giỏ hàng trộn lẫn id của product_options và topping_items trong cùng một
@@ -275,10 +301,43 @@ export async function fetchCartSync(
   if (missingOptionIds.length > 0) {
     const { data, error } = await supabase
       .from("topping_items")
-      .select("id, name, price_delta, is_available")
+      .select("id, name, price_delta, is_available, group_id")
       .in("id", missingOptionIds);
     if (error) throw error;
-    for (const t of data ?? []) snapshot.options[t.id] = t;
+    for (const t of data ?? []) {
+      // Topping luôn cộng thêm giá, không bao giờ thay giá gốc.
+      snapshot.options[t.id] = { ...t, price_mode: "delta", source: "topping" };
+    }
+  }
+
+  // Cách cộng giá nằm ở nhóm option (replace = thay giá gốc, delta = cộng thêm).
+  const groupIds = [
+    ...new Set(
+      Object.values(snapshot.options)
+        .filter((option) => !option.source)
+        .map((option) => option.group_id),
+    ),
+  ];
+  if (groupIds.length > 0) {
+    const { data: groups, error: groupsError } = await supabase
+      .from("product_option_groups")
+      .select("id, price_mode")
+      .in("id", groupIds);
+    if (groupsError) {
+      // 42703 = DB chưa chạy migration thêm price_mode. Giữ hành vi cũ (mọi
+      // nhóm đều cộng thêm) thay vì làm sập giỏ hàng.
+      if (groupsError.code === "42703") return snapshot;
+      throw groupsError;
+    }
+
+    const modeByGroup = new Map<string, "delta" | "replace">();
+    for (const group of groups ?? []) {
+      modeByGroup.set(group.id, group.price_mode === "replace" ? "replace" : "delta");
+    }
+    for (const option of Object.values(snapshot.options)) {
+      if (option.source) continue;
+      option.price_mode = modeByGroup.get(option.group_id) ?? "delta";
+    }
   }
 
   return snapshot;
@@ -303,11 +362,45 @@ type ProductDetailRow = Omit<ProductDetail, "toppingGroups"> & {
   product_topping_groups: Array<{ sort_order: number; topping_groups: ToppingGroupWithItems | null }>;
 };
 
+/**
+ * Nhóm biến thể DÙNG CHUNG đã gán cho món (product_id = null + bảng nối).
+ * Trả rỗng nếu DB chưa chạy migration nhóm dùng chung, để trang món vẫn chạy
+ * với nhóm riêng như trước.
+ */
+async function fetchLinkedOptionGroups(
+  productId: string,
+): Promise<ProductDetail["product_option_groups"]> {
+  const { data, error } = await supabase
+    .from("product_option_group_links")
+    .select("product_option_groups(*, product_options(*))")
+    .eq("product_id", productId)
+    .order("sort_order");
+
+  if (error) {
+    // Chưa chạy migration nhóm dùng chung: PostgREST trả 42P01 hoặc PGRST205
+    // (không thấy bảng trong schema cache). Vẫn chạy được với nhóm riêng.
+    if (
+      error.code === "42P01" ||
+      error.code === "PGRST205" ||
+      /product_option_group_links/i.test(error.message ?? "")
+    ) {
+      return [];
+    }
+    throw error;
+  }
+
+  return (data ?? [])
+    .map((link) => link.product_option_groups)
+    .filter((group): group is ProductDetail["product_option_groups"][number] => group !== null);
+}
+
 export async function fetchProductBySlug(slug: string): Promise<ProductDetail | null> {
   const { data, error } = await supabase
     .from("products")
     .select(
-      "*, categories(icon, name, slug), product_option_groups(*, product_options(*)), product_topping_groups(sort_order, topping_groups(*, topping_items(*)))",
+      // Nêu rõ khoá ngoại: bảng nối product_option_group_links tạo quan hệ thứ hai
+      // giữa products và product_option_groups, không chỉ định sẽ báo PGRST201.
+      "*, categories(icon, name, slug), product_option_groups!product_option_groups_product_id_fkey(*, product_options(*)), product_topping_groups(sort_order, topping_groups(*, topping_items(*)))",
     )
     .eq("slug", slug)
     .maybeSingle();
@@ -316,6 +409,13 @@ export async function fetchProductBySlug(slug: string): Promise<ProductDetail | 
   if (!data) return null;
 
   const row = data as ProductDetailRow;
+
+  // Nhóm dùng chung (vd Size M/L) gán thêm cho món, gộp cùng nhóm riêng.
+  const groupsById = new Map(row.product_option_groups.map((g) => [g.id, g]));
+  for (const group of await fetchLinkedOptionGroups(row.id)) {
+    if (!groupsById.has(group.id)) groupsById.set(group.id, group);
+  }
+  row.product_option_groups = [...groupsById.values()];
 
   // PostgREST không sắp xếp được cấp lồng thứ hai — sắp ở client cho gọn.
   row.product_option_groups.sort((a, b) => a.sort_order - b.sort_order);
@@ -342,7 +442,8 @@ export async function fetchProductById(id: string): Promise<ProductDetail | null
   const { data, error } = await supabase
     .from("products")
     .select(
-      "*, categories(icon, name, slug), product_option_groups(*, product_options(*)), product_topping_groups(sort_order, topping_groups(*, topping_items(*)))",
+      // Xem chú thích ở fetchProductBySlug: phải chỉ định khoá ngoại.
+      "*, categories(icon, name, slug), product_option_groups!product_option_groups_product_id_fkey(*, product_options(*)), product_topping_groups(sort_order, topping_groups(*, topping_items(*)))",
     )
     .eq("id", id)
     .maybeSingle();
@@ -405,6 +506,8 @@ export type SelectedOption = Pick<
 > & {
   /** Snapshot đơn cũ không ghi nguồn, nên suy ra từ bảng tra được id. */
   source?: "topping";
+  /** Cách nhóm cộng giá: "replace" (biến thể/kích cỡ) hay "delta" (cộng thêm). */
+  price_mode: "delta" | "replace";
 };
 
 /**
@@ -419,17 +522,50 @@ export async function fetchOptionsByIds(ids: string[]): Promise<SelectedOption[]
   const { data, error } = await supabase.from("product_options").select(columns).in("id", ids);
   if (error) throw error;
 
-  const found = data ?? [];
+  const found: SelectedOption[] = (data ?? []).map((o) => ({ ...o, price_mode: "delta" as const }));
   const missing = ids.filter((id) => !found.some((o) => o.id === id));
-  if (missing.length === 0) return found;
 
-  const { data: toppings, error: tErr } = await supabase
-    .from("topping_items")
-    .select(columns)
-    .in("id", missing);
-  if (tErr) throw tErr;
+  let toppings: SelectedOption[] = [];
+  if (missing.length > 0) {
+    const { data, error: tErr } = await supabase
+      .from("topping_items")
+      .select(columns)
+      .in("id", missing);
+    if (tErr) throw tErr;
+    toppings = (data ?? []).map((t) => ({
+      ...t,
+      source: "topping" as const,
+      price_mode: "delta" as const,
+    }));
+  }
 
-  return [...found, ...(toppings ?? []).map((t) => ({ ...t, source: "topping" as const }))];
+  const rows = [...found, ...toppings];
+
+  // Nhóm quyết định cách cộng giá. Mua lại đơn cũ vẫn dùng GIÁ HIỆN TẠI, nên
+  // phải tính y hệt create-order — biến thể/kích cỡ thay giá gốc, không cộng.
+  const groupIds = [
+    ...new Set(rows.filter((row) => !row.source).map((row) => row.group_id)),
+  ];
+  if (groupIds.length === 0) return rows;
+
+  const { data: groups, error: gErr } = await supabase
+    .from("product_option_groups")
+    .select("id, price_mode")
+    .in("id", groupIds);
+  if (gErr) {
+    // DB chưa có cột price_mode (migration chưa áp) → coi mọi nhóm là "delta".
+    if (gErr.code === "42703") return rows;
+    throw gErr;
+  }
+
+  const modeByGroup = new Map<string, "delta" | "replace">();
+  for (const group of groups ?? []) {
+    modeByGroup.set(group.id, group.price_mode === "replace" ? "replace" : "delta");
+  }
+
+  return rows.map((row) =>
+    row.source ? row : { ...row, price_mode: modeByGroup.get(row.group_id) ?? "delta" },
+  );
 }
 
 // ── Combo (gộp món) ──────────────────────────────────────────────────────
@@ -441,9 +577,15 @@ export async function fetchOptionsByIds(ids: string[]): Promise<SelectedOption[]
 const COMBO_LIST_LIMIT = 20;
 
 /** Combo kèm danh sách món con — đủ để card hiển thị tóm tắt "Xôi · Trà sữa". */
-export type ComboWithItems = Tables<"combos"> & {
+export type ComboWithItems = Omit<Tables<"combos">, "choice_groups"> & {
   combo_items: Array<{ quantity: number; products: { id: string; name: string } | null }>;
+  /** Cột jsonb đã chuẩn hoá về đúng hình dạng — card ngoài cần in cả món nước được chọn. */
+  choice_groups: ComboChoiceGroup[];
 };
+
+function normalizeChoiceGroups(value: unknown): ComboChoiceGroup[] {
+  return Array.isArray(value) ? (value as ComboChoiceGroup[]) : [];
+}
 
 /** Toàn bộ combo đang bán — dùng cho section "Ăn thả ga không lo về giá". */
 export async function fetchCombos(): Promise<ComboWithItems[]> {
@@ -462,11 +604,17 @@ export async function fetchCombos(): Promise<ComboWithItems[]> {
       .order("sort_order")
       .limit(COMBO_LIST_LIMIT);
     if (retry.error) throw retry.error;
-    return (retry.data as ComboWithItems[]) ?? [];
+    return ((retry.data ?? []) as Omit<ComboWithItems, "choice_groups">[]).map((c) => ({
+      ...c,
+      choice_groups: [],
+    }));
   }
 
   if (error) throw error;
-  return data as ComboWithItems[];
+  return (data as ComboWithItems[]).map((c) => ({
+    ...c,
+    choice_groups: normalizeChoiceGroups(c.choice_groups),
+  }));
 }
 
 /** Dùng cho "Mua lại đơn": lấy hiện trạng HIỆN TẠI của các combo trong đơn cũ. */

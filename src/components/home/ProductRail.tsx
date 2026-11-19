@@ -1,8 +1,10 @@
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
+import ProductOptionSheet from "@/components/product/ProductOptionSheet";
 import ErrorState from "@/components/ui/ErrorState";
 import { ProductRailSkeleton } from "@/components/Skeleton";
 import { discountBadgeLabel, discountedPrice, formatVnd } from "@/lib/format";
@@ -46,6 +48,8 @@ export default function ProductRail({
   // đĩa cam) nên chỉ còn một nhánh thật sự khác: info hay không.
   const iconTone = tone === "banner-info" ? "bg-info/10 text-info" : "bg-primary/10 text-primary";
 
+  const [quickAddSlug, setQuickAddSlug] = useState("");
+
   const body =
     loading && !products ? (
       <ProductRailSkeleton layout={layout} />
@@ -57,14 +61,20 @@ export default function ProductRail({
       <ul className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1 pb-1.5 scroll-smooth">
         {products.map((p) => (
           <li key={p.id} className="shrink-0">
-            <RailCard product={p} layout={layout} onBanner={onBanner} />
+            <RailCard
+              product={p}
+              layout={layout}
+              onBanner={onBanner}
+              onQuickAdd={() => setQuickAddSlug(p.slug)}
+            />
           </li>
         ))}
       </ul>
     );
 
   return (
-    <section className="mt-6 px-margin-mobile md:px-gutter">
+    <>
+      <section className="mt-6 px-margin-mobile md:px-gutter">
       {/*
        * Trước đây "Must Try" và "Ăn Ngon Rẻ" phủ kín section bằng dải màu
        * (bg-info/bg-primary-container) với thẻ kéo đè lên trên (-mt-12) —
@@ -106,7 +116,14 @@ export default function ProductRail({
 
         <div className="p-3.5">{body}</div>
       </div>
-    </section>
+      </section>
+
+      {/* Sheet phải nằm TRONG cây JSX trả về — trước đây đặt sau `return` nên
+          không bao giờ render và nút "Nhanh thêm" im lặng không làm gì. */}
+      {quickAddSlug && (
+        <ProductOptionSheet slug={quickAddSlug} onClose={() => setQuickAddSlug("")} />
+      )}
+    </>
   );
 }
 
@@ -114,10 +131,12 @@ function RailCard({
   product,
   layout,
   onBanner,
+  onQuickAdd,
 }: {
   product: ProductWithCategory;
   layout: RailLayout;
   onBanner: boolean;
+  onQuickAdd?: () => void;
 }) {
   const hasDiscount = product.discount_value > 0;
   const finalPrice = discountedPrice(product.base_price, product.discount_type, product.discount_value);
@@ -142,7 +161,7 @@ function RailCard({
       <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
         <Link
           to={`/mon/${product.slug}`}
-          className="group flex w-72 gap-3.5 rounded-card p-2 border border-outline-variant/60 bg-surface-container-lowest shadow-card transition-all hover:shadow-card-hover focus-visible:outline-none"
+          className="group relative flex w-72 gap-3.5 rounded-card p-2 border border-outline-variant/60 bg-surface-container-lowest shadow-card transition-all hover:shadow-card-hover focus-visible:outline-none"
         >
           <ProductImage
             src={product.image_url}
@@ -163,6 +182,22 @@ function RailCard({
             )}
 
             {priceBlock}
+
+            {!soldOut && onQuickAdd && (
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onQuickAdd();
+                }}
+                aria-label={`Nhanh thêm ${product.name} vào giỏ`}
+                className="absolute top-2 right-2 z-20 grid size-10 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              >
+                <Plus size={18} strokeWidth={2.8} />
+              </motion.button>
+            )}
           </div>
         </Link>
       </motion.div>
@@ -173,7 +208,7 @@ function RailCard({
     <motion.div whileHover={{ y: -3 }} whileTap={{ scale: 0.96 }}>
       <Link
         to={`/mon/${product.slug}`}
-        className={`group flex w-36 flex-col rounded-card p-2 border border-outline-variant/50 transition-all focus-visible:outline-none ${
+        className={`group relative flex w-36 flex-col rounded-card p-2 border border-outline-variant/50 transition-all focus-visible:outline-none ${
           onBanner ? "bg-surface-container-lowest shadow-card" : "bg-surface-container-lowest hover:shadow-card-hover"
         }`}
       >
@@ -208,6 +243,22 @@ function RailCard({
         </h3>
 
         {priceBlock}
+
+        {!soldOut && onQuickAdd && (
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onQuickAdd();
+            }}
+            aria-label={`Nhanh thêm ${product.name} vào giỏ`}
+            className="absolute top-2 right-2 z-20 grid size-10 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          >
+            <Plus size={18} strokeWidth={2.8} />
+          </motion.button>
+        )}
       </Link>
     </motion.div>
   );

@@ -20,11 +20,7 @@ export type CartOption = {
   optionId: string;
   optionName: string;
   priceDelta: number;
-  /**
-   * Chỉ để hiển thị: dòng giỏ tách riêng nhãn "Topping:" cho nhóm topping.
-   * Để optional nên giỏ lưu từ trước khi có topping vẫn đọc được, không cần
-   * nâng version persist — thiếu trường thì hiểu là option lẻ.
-   */
+  quantity: number;
   source?: "topping";
 };
 
@@ -107,15 +103,21 @@ export type NewCartItem = Omit<ProductCartItem, "lineId"> | Omit<ComboCartItem, 
 function identityOf(item: NewCartItem): string {
   const note = item.note?.trim() ?? "";
   if (item.kind === "combo") {
+    // Topping trong combo có số lượng: khác số lượng phải là dòng riêng.
+    const optKey = (o: CartOption) => `${o.optionId}:${o.quantity ?? 1}`;
     const compKey = item.components
-      .map((c) => `${c.productId}:${c.options.map((o) => o.optionId).sort().join(",")}`)
+      .map((c) => `${c.productId}:${c.options.map(optKey).sort().join(",")}`)
       .join("|");
     const choiceKey = item.choices
-      .map((c) => `${c.groupId}:${c.productId}:${c.options.map((o) => o.optionId).sort().join(",")}`)
+      .map((c) => `${c.groupId}:${c.productId}:${c.options.map(optKey).sort().join(",")}`)
       .join("|");
     return `combo:${item.comboId}|${compKey}|${choiceKey}|${note}`;
   }
-  const ids = item.options.map((o) => o.optionId).sort().join(",");
+  // Cùng món nhưng bộ chọn khác (kể cả số lượng topping) phải là dòng riêng.
+  const ids = item.options
+    .map((o) => `${o.optionId}:${o.quantity ?? 1}`)
+    .sort()
+    .join(",");
   return `product:${item.productId}|${ids}|${note}`;
 }
 
@@ -125,7 +127,7 @@ function identityOf(item: NewCartItem): string {
  * bấm "Thêm vào giỏ" là gọi thẳng hàm này rồi addItem().
  */
 export function comboToCartItem(
-  combo: ComboWithItems,
+  combo: Pick<ComboWithItems, "id" | "slug" | "name" | "image_url" | "price" | "combo_items">,
   quantity = 1,
   components: ComboComponentSelection[] = [],
   choices: ComboChoiceSelection[] = [],

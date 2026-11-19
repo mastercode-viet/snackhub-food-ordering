@@ -76,6 +76,174 @@ export async function deleteToppingItem(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// ── Biến thể / nhóm lựa chọn của món ─────────────────────────────────────
+//
+// Mì có nhiều loại (Mì rau củ, Mì trộn xúc xích…) và đồ uống có size M/L:
+// đó là `product_option_groups` với price_mode = "replace", mỗi lựa chọn mang
+// GIÁ BÁN tuyệt đối. Nhóm "chọn nhiều" (price_mode = "delta") thì cộng thêm.
+
+export type AdminOptionGroup = Tables<"product_option_groups"> & {
+  product_options: Tables<"product_options">[];
+  /** Nhóm dùng chung: product_id = null, gán cho từng món qua bảng nối. */
+  shared?: boolean;
+};
+
+function sortOptionGroups(groups: AdminOptionGroup[]): AdminOptionGroup[] {
+  for (const group of groups) {
+    group.product_options.sort((a, b) => a.sort_order - b.sort_order);
+  }
+  return groups.sort((a, b) => a.sort_order - b.sort_order);
+}
+
+/** Nhóm biến thể DÙNG CHUNG (vd Size M/L) — tạo một lần, gán cho nhiều món. */
+export async function fetchSharedOptionGroups(): Promise<AdminOptionGroup[]> {
+  const { data, error } = await supabase
+    .from("product_option_groups")
+    .select("*, product_options(*)")
+    .is("product_id", null)
+    .order("sort_order")
+    .order("name");
+
+  if (error) throw error;
+  return sortOptionGroups((data as AdminOptionGroup[]).map((g) => ({ ...g, shared: true })));
+}
+
+/** group_id → danh sách product_id đang được gán nhóm dùng chung. */
+export async function fetchOptionGroupAssignments(): Promise<Record<string, string[]>> {
+  const { data, error } = await supabase
+    .from("product_option_group_links")
+    .select("product_id, group_id");
+
+  if (error) {
+    // Chưa chạy migration nhóm dùng chung: PostgREST trả 42P01 hoặc PGRST205
+    // (không thấy bảng trong schema cache). Coi như chưa gán món nào.
+    if (
+      error.code === "42P01" ||
+      error.code === "PGRST205" ||
+      /product_option_group_links/i.test(error.message ?? "")
+    ) {
+      return {};
+    }
+    throw error;
+  }
+
+  const byGroup: Record<string, string[]> = {};
+  for (const row of data ?? []) {
+    (byGroup[row.group_id] ??= []).push(row.product_id);
+  }
+  return byGroup;
+}
+
+/** Thay toàn bộ danh sách món được gán một nhóm dùng chung. */
+export async function setOptionGroupProducts(
+  groupId: string,
+  productIds: string[],
+): Promise<void> {
+  const { error: delErr } = await supabase
+    .from("product_option_group_links")
+    .delete()
+    .eq("group_id", groupId);
+  if (delErr) throw delErr;
+
+  if (productIds.length === 0) return;
+
+  const { error } = await supabase
+    .from("product_option_group_links")
+    .insert(productIds.map((product_id) => ({ product_id, group_id: groupId })));
+  if (error) throw error;
+}
+
+export async function fetchProductOptionGroups(productId: string): Promise<AdminOptionGroup[]> {
+  const { data, error } = await supabase
+    .from("product_option_groups")
+    .select("*, product_options(*)")
+    .eq("product_id", productId)
+    .order("sort_order");
+
+  if (error) throw error;
+
+  return sortOptionGroups(data as AdminOptionGroup[]);
+}
+
+/**
+ * Tạo nhóm biến thể.
+ * `productId = null` để tạo nhóm DÙNG CHUNG (size M/L cho nhiều món).
+ * - "single": khách chọn đúng 1, giá lựa chọn THAY giá gốc (biến thể mì…).
+ * - "size": khách chọn đúng 1, giá lựa chọn CỘNG THÊM vào giá gốc — dùng cho
+ *   size M/L của đồ uống: M để 0đ, L là phần chênh lệch. Nhờ vậy combo giữ
+ *   nguyên giá combo và chỉ cộng phần up-size.
+ * - "multi": khách chọn nhiều, giá lựa chọn CỘNG THÊM vào giá gốc.
+ */
+export async function createOptionGroup(input: {
+  /** null = nhóm dùng chung, gán cho món qua bảng nối. */
+  productId: string | null;
+  name: string;
+  mode: "single" | "size" | "multi";
+  sortOrder: number;
+}): Promise<void> {
+  const single = input.mode !== "multi";
+  const { error } = await supabase.from("product_option_groups").insert({
+    product_id: input.productId,
+    name: input.name,
+    is_required: single,
+    min_select: single ? 1 : 0,
+    max_select: single ? 1 : 5,
+    quantity_enabled: false,
+    price_mode: input.mode === "single" ? "replace" : "delta",
+    sort_order: input.sortOrder,
+  });
+  if (error) throw error;
+}
+
+export async function updateOptionGroup(
+  id: string,
+  patch: Partial<
+    Pick<
+      Tables<"product_option_groups">,
+      "name" | "is_required" | "min_select" | "max_select" | "price_mode" | "quantity_enabled"
+    >
+  >,
+): Promise<void> {
+  const { error } = await supabase.from("product_option_groups").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+/** Xoá nhóm kéo theo các lựa chọn bên trong (FK cascade). Đơn cũ giữ snapshot. */
+export async function deleteOptionGroup(id: string): Promise<void> {
+  const { error } = await supabase.from("product_option_groups").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function createOption(input: {
+  groupId: string;
+  name: string;
+  /** Với nhóm "single": giá bán tuyệt đối. Với nhóm "multi": phụ phí. */
+  price: number;
+  sortOrder: number;
+}): Promise<void> {
+  const { error } = await supabase.from("product_options").insert({
+    group_id: input.groupId,
+    name: input.name,
+    price_delta: input.price,
+    sort_order: input.sortOrder,
+    is_available: true,
+  });
+  if (error) throw error;
+}
+
+export async function updateOption(
+  id: string,
+  patch: Partial<Pick<Tables<"product_options">, "name" | "price_delta" | "is_available">>,
+): Promise<void> {
+  const { error } = await supabase.from("product_options").update(patch).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteOption(id: string): Promise<void> {
+  const { error } = await supabase.from("product_options").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export type AdminProduct = Pick<Tables<"products">, "id" | "name" | "base_price">;
 
 export async function fetchAdminProducts(): Promise<AdminProduct[]> {

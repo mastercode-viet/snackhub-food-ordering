@@ -64,8 +64,18 @@ export const productCartItemSchema = z.object({
   kind: z.literal("product"),
   product_id: z.string().uuid(),
   quantity: z.number().int().min(1).max(99),
-  // Chỉ nhận ID option. Tên và GIÁ được tra lại từ DB, không lấy từ client.
-  option_ids: z.array(z.string().uuid()).max(20).default([]),
+  // Chỉ nhận ID option + số lượng. Tên và GIÁ được tra lại từ DB, không lấy từ client.
+  options: z
+    .array(
+      z.object({
+        option_id: z.string().uuid(),
+        quantity: z.number().int().min(0).max(99),
+      }),
+    )
+    // KHÔNG có .default([]): payload sai hình dạng (vd. client cũ gửi
+    // `option_ids`) phải bị từ chối 400, không được lặng lẽ thành [] rồi
+    // tính giá gốc — đúng kiểu lỗi từng làm đơn mất hết topping.
+    .max(20),
   item_note: z.string().trim().max(200).optional(),
 });
 
@@ -78,7 +88,14 @@ export const comboCartItemSchema = z.object({
     .array(
       z.object({
         product_id: z.string().uuid(),
-        option_ids: z.array(z.string().uuid()).max(20).default([]),
+        options: z
+          .array(
+            z.object({
+              option_id: z.string().uuid(),
+              quantity: z.number().int().min(0).max(99),
+            }),
+          )
+          .max(20),
       }),
     )
     .default([]),
@@ -87,7 +104,14 @@ export const comboCartItemSchema = z.object({
       z.object({
         group_id: z.string().uuid(),
         product_id: z.string().uuid(),
-        option_ids: z.array(z.string().uuid()).max(20).default([]),
+        options: z
+          .array(
+            z.object({
+              option_id: z.string().uuid(),
+              quantity: z.number().int().min(0).max(99),
+            }),
+          )
+          .max(20),
       }),
     )
     .default([]),

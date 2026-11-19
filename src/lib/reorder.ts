@@ -87,6 +87,8 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
             optionId: o.id,
             optionName: o.name,
             priceDelta: Number(o.price_delta),
+            // Giữ đúng số lượng topping của đơn cũ, không ép về 1.
+            quantity: Math.max(1, Number(line.options.find((x) => x.option_id === o.id)?.quantity ?? 1)),
             source: o.source,
           }));
         const optionsPrice = cartOptions.reduce((s, o) => s + o.priceDelta, 0) * ci.quantity;
@@ -115,6 +117,7 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
               optionId: o.id,
               optionName: o.name,
               priceDelta: Number(o.price_delta),
+              quantity: 1,
               source: o.source,
             }));
           const groupItemQuantity = ci.quantity ?? 1;
@@ -173,16 +176,37 @@ export async function buildReorder(orderItems: OrderItemView[]): Promise<Reorder
       continue;
     }
 
-    const unitBase = discountedPrice(product.base_price, product.discount_type, product.discount_value);
     const cartOptions = chosen.map((o) => ({
       groupId: o!.group_id,
       groupName: line.options.find((x) => x.option_id === o!.id)?.group_name ?? "",
       optionId: o!.id,
       optionName: o!.name,
       priceDelta: Number(o!.price_delta),
+      // Giữ đúng số lượng topping của đơn cũ, không ép về 1.
+      quantity: Math.max(1, Number(line.options.find((x) => x.option_id === o!.id)?.quantity ?? 1)),
       source: o!.source,
     }));
-    const optionsPrice = cartOptions.reduce((s, o) => s + o.priceDelta, 0);
+    // Giá: biến thể/kích cỡ (price_mode "replace") thay giá gốc; topping và
+    // option thường cộng thêm theo số lượng — cùng công thức với create-order.
+    let replaceBase: number | null = null;
+    let optionsPrice = 0;
+    for (const option of chosen) {
+      if (!option) continue;
+      if (option.price_mode === "replace") {
+        const price = Number(option.price_delta);
+        replaceBase = replaceBase === null ? price : Math.max(replaceBase, price);
+        continue;
+      }
+      const quantity = Math.max(
+        1,
+        Number(line.options.find((x) => x.option_id === option.id)?.quantity ?? 1),
+      );
+      optionsPrice += Number(option.price_delta) * quantity;
+    }
+    const unitBase =
+      replaceBase === null
+        ? discountedPrice(product.base_price, product.discount_type, product.discount_value)
+        : Math.max(0, replaceBase);
 
     items.push({
       kind: "product",

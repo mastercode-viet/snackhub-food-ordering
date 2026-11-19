@@ -53,7 +53,11 @@ export default function CartLine({
       ? ""
       : item.options
           .filter((o) => o.source === "topping")
-          .map((o) => o.optionName)
+          .map(
+            (o) =>
+              // Hiển thị THÀNH TIỀN topping (đơn giá × số lượng), không phải đơn giá.
+              `${o.optionName}${o.quantity > 1 ? ` × ${o.quantity}` : ""}${o.priceDelta ? ` (+${formatVnd(o.priceDelta * (o.quantity > 0 ? o.quantity : 1))})` : ""}`,
+          )
           .join(", ");
 
   return (

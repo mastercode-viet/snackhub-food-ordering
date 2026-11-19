@@ -19,6 +19,13 @@ function deltaLabel(delta: number): string | null {
   return delta > 0 ? `+${formatVnd(delta)}` : `-${formatVnd(Math.abs(delta))}`;
 }
 
+/** Nhóm SET_BASE_PRICE (price_mode = "replace") hiển thị giá tuyệt đối của lựa chọn thay vì phụ phí. */
+function optionPriceLabel(opt: { price_delta: number }, priceMode: string | undefined): string | null {
+  const delta = Number(opt.price_delta);
+  if (priceMode === "replace") return delta > 0 ? formatVnd(delta) : null;
+  return deltaLabel(delta);
+}
+
 function badgeText(group: OptionGroupData): string {
   const min = Math.max(1, group.min_select);
   if (group.is_required) {
@@ -84,7 +91,7 @@ export default function OptionGroup({
           {group.product_options.map((opt) => {
             const active = selected.includes(opt.id);
             const disabled = !opt.is_available;
-            const delta = deltaLabel(Number(opt.price_delta));
+            const delta = optionPriceLabel(opt, group.price_mode);
 
             return (
               <motion.button
@@ -121,7 +128,7 @@ export default function OptionGroup({
           {group.product_options.map((opt) => {
             const active = selected.includes(opt.id);
             const disabled = !opt.is_available || (atMax && !active);
-            const delta = deltaLabel(Number(opt.price_delta));
+            const delta = optionPriceLabel(opt, group.price_mode);
 
             return (
               <motion.label

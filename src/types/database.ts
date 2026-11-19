@@ -536,6 +536,42 @@ export type Database = {
           },
         ]
       }
+      product_option_group_links: {
+        Row: {
+          created_at: string
+          group_id: string
+          product_id: string
+          sort_order: number
+        }
+        Insert: {
+          created_at?: string
+          group_id: string
+          product_id: string
+          sort_order?: number
+        }
+        Update: {
+          created_at?: string
+          group_id?: string
+          product_id?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_option_group_links_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "product_option_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_option_group_links_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       product_option_groups: {
         Row: {
           created_at: string
@@ -544,8 +580,10 @@ export type Database = {
           max_select: number
           min_select: number
           name: string
-          product_id: string
+          product_id: string | null
           sort_order: number
+          quantity_enabled: boolean
+          price_mode: string
         }
         Insert: {
           created_at?: string
@@ -554,7 +592,9 @@ export type Database = {
           max_select?: number
           min_select?: number
           name: string
-          product_id: string
+          price_mode?: string
+          product_id?: string | null
+          quantity_enabled?: boolean
           sort_order?: number
         }
         Update: {
@@ -564,7 +604,9 @@ export type Database = {
           max_select?: number
           min_select?: number
           name?: string
-          product_id?: string
+          price_mode?: string
+          product_id?: string | null
+          quantity_enabled?: boolean
           sort_order?: number
         }
         Relationships: [
@@ -580,27 +622,33 @@ export type Database = {
       product_options: {
         Row: {
           created_at: string
+          default_quantity: number
           group_id: string
           id: string
           is_available: boolean
+          max_quantity: number
           name: string
           price_delta: number
           sort_order: number
         }
         Insert: {
           created_at?: string
+          default_quantity?: number
           group_id: string
           id?: string
           is_available?: boolean
+          max_quantity?: number
           name: string
           price_delta?: number
           sort_order?: number
         }
         Update: {
           created_at?: string
+          default_quantity?: number
           group_id?: string
           id?: string
           is_available?: boolean
+          max_quantity?: number
           name?: string
           price_delta?: number
           sort_order?: number
@@ -1083,27 +1131,33 @@ export type Database = {
       topping_items: {
         Row: {
           created_at: string
+          default_quantity: number
           group_id: string
           id: string
           is_available: boolean
+          max_quantity: number
           name: string
           price_delta: number
           sort_order: number
         }
         Insert: {
           created_at?: string
+          default_quantity?: number
           group_id: string
           id?: string
           is_available?: boolean
+          max_quantity?: number
           name: string
           price_delta?: number
           sort_order?: number
         }
         Update: {
           created_at?: string
+          default_quantity?: number
           group_id?: string
           id?: string
           is_available?: boolean
+          max_quantity?: number
           name?: string
           price_delta?: number
           sort_order?: number

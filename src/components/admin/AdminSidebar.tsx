@@ -105,6 +105,7 @@ function SidebarContent({
             <SidebarLink to="/admin/khuyen-mai" label="Khuyến mãi" />
             <SidebarLink to="/admin/thong-ke" label="Thống kê" />
             <SidebarLink to="/admin/toppings" label="Nhóm topping" />
+            <SidebarLink to="/admin/bien-the" label="Biến thể món" />
             <SidebarLink to="/admin/banner" label="Banner" />
             <SidebarLink to="/admin/nhan-su" label="Nhân sự" />
             <SidebarLink to="/admin/ca-lam" label="Ca làm" />

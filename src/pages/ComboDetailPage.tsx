@@ -3,7 +3,9 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ShoppingBag } from "lucide-react";
 import { motion } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
-import OptionGroup from "@/components/product/OptionGroup";
+import OptionGroup, { type OptionGroupData } from "@/components/product/OptionGroup";
+import ToppingQuantityGroup from "@/components/product/ToppingQuantityGroup";
+import SizeGroup, { isSizeGroup, sizeGroupLabels } from "@/components/product/SizeGroup";
 import QuantityStepper from "@/components/product/QuantityStepper";
 import { Skeleton } from "@/components/Skeleton";
 import EmptyState from "@/components/ui/EmptyState";
@@ -19,6 +21,15 @@ import {
 import { fetchProductById, fetchProductsByIds, type ProductDetail, type ComboChoiceGroup } from "@/lib/queries";
 import { comboToCartItem, useCartStore, type ComboComponentSelection, type ComboChoiceSelection } from "@/store/cart";
 import { toast } from "@/store/toast";
+
+/**
+ * Combo đã bao gồm "mì thập cẩm": bỏ các nhóm biến thể thay-giá-gốc khỏi phần
+ * chọn của combo. Nếu để nguyên, khách vừa trả giá combo vừa bị cộng thêm giá
+ * biến thể. Topping (price_mode = "delta") vẫn giữ để khách thêm số lượng.
+ */
+function comboGroupsOf(product: ProductDetail): OptionGroupData[] {
+  return toOptionGroups(product).filter((g) => g.price_mode !== "replace");
+}
 
 export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: string; onClose?: () => void } = {}) {
   const params = useParams();
@@ -36,11 +47,44 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
   const [choiceProductDetails, setChoiceProductDetails] = useState<Record<string, ProductDetail | null>>({});
   const [choiceProductNames, setChoiceProductNames] = useState<Record<string, string>>({});
   const [choiceOptionSelections, setChoiceOptionSelections] = useState<Record<string, Record<string, string[]>>>({});
+  // Số lượng topping theo từng món con (pid -> optionId -> qty), giống trang món lẻ.
+  const [quantities, setQuantities] = useState<Record<string, Record<string, number>>>({});
+  const [choiceQuantities, setChoiceQuantities] = useState<Record<string, Record<string, number>>>({});
 
   const choiceGroups: ComboChoiceGroup[] = useMemo(
     () => (Array.isArray(combo?.choice_groups) ? (combo.choice_groups as ComboChoiceGroup[]) : []),
     [combo],
   );
+
+  /**
+   * Size là chọn một: chọn size nào thì bỏ số lượng của các size còn lại.
+   * Nhóm Size của món nằm ở product_option_groups (selection), nhóm "Up size"
+   * cũ nằm ở topping (số lượng) — cập nhật cả hai để chạy được trước và sau
+   * khi quán tạo biến thể Size trong Admin.
+   */
+  function pickSize(pid: string, group: OptionGroupData, optionId: string | null) {
+    setSelections((prev) => ({
+      ...prev,
+      [pid]: { ...(prev[pid] ?? {}), [group.id]: optionId ? [optionId] : [] },
+    }));
+    setQuantities((prev) => {
+      const cur = { ...(prev[pid] ?? {}) };
+      for (const opt of group.product_options) cur[opt.id] = opt.id === optionId ? 1 : 0;
+      return { ...prev, [pid]: cur };
+    });
+  }
+
+  function pickChoiceSize(pid: string, group: OptionGroupData, optionId: string | null) {
+    setChoiceOptionSelections((prev) => ({
+      ...prev,
+      [pid]: { ...(prev[pid] ?? {}), [group.id]: optionId ? [optionId] : [] },
+    }));
+    setChoiceQuantities((prev) => {
+      const cur = { ...(prev[pid] ?? {}) };
+      for (const opt of group.product_options) cur[opt.id] = opt.id === optionId ? 1 : 0;
+      return { ...prev, [pid]: cur };
+    });
+  }
 
   useEffect(() => {
     if (!combo) return;
@@ -82,25 +126,6 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
     let cancelled = false;
     Promise.all(missing.map((id) => fetchProductById(id).then((d) => [id, d] as const))).then((results) => {
       if (cancelled) return;
-  // Tải chi tiết (tên + topping) cho mọi món trong lựa chọn thêm, để hiển thị đúng tên.
-  useEffect(() => {
-    if (!combo) return;
-    const ids = choiceGroups.flatMap((g) => g.items.map((it) => it.product_id));
-    const missing = ids.filter((id) => !(id in choiceProductDetails));
-    if (missing.length === 0) return;
-    let cancelled = false;
-    Promise.all(missing.map((id) => fetchProductById(id).then((d) => [id, d] as const))).then((results) => {
-      if (cancelled) return;
-      setChoiceProductDetails((prev) => {
-        const next = { ...prev };
-        for (const [id, d] of results) next[id] = d;
-        return next;
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [combo, choiceGroups, choiceProductDetails]);
       setChoiceProductDetails((prev) => {
         const next = { ...prev };
         for (const [id, d] of results) next[id] = d;
@@ -118,7 +143,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
       for (const pid of Object.keys(choiceProductDetails)) {
         const pd = choiceProductDetails[pid];
         if (pd && !next[pid]) {
-          next[pid] = initialSelections(toOptionGroups(pd));
+          next[pid] = initialSelections(comboGroupsOf(pd));
         }
       }
       return next;
@@ -147,7 +172,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
       const next = { ...prev };
       for (const [pid, pd] of Object.entries(productDetails)) {
         if (pd && !next[pid]) {
-          next[pid] = initialSelections(toOptionGroups(pd));
+          next[pid] = initialSelections(comboGroupsOf(pd));
         }
       }
       return next;
@@ -171,10 +196,10 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
       const pid = ci.products.id;
       const pd = productDetails[pid];
       if (!pd) return sum;
-      const groups = toOptionGroups(pd);
+      const groups = comboGroupsOf(pd);
       const eff = { ...initialSelections(groups), ...(selections[pid] ?? {}) };
-      const chosen = chosenOptions(groups, eff);
-      return sum + chosen.reduce((s, o) => s + o.priceDelta, 0) * ci.quantity;
+      const chosen = chosenOptions(groups, eff, quantities[pid]);
+      return sum + chosen.reduce((s, o) => s + o.priceDelta * (o.quantity ?? 1), 0) * ci.quantity;
     }, 0);
     // choice groups surcharges
     for (const pid of Object.values(choiceSelections).flat()) {
@@ -183,13 +208,13 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
       const groupItemQuantity = choiceGroups
         .flatMap((g) => g.items)
         .find((it) => it.product_id === pid)?.quantity ?? 1;
-      const groups = toOptionGroups(pd);
+      const groups = comboGroupsOf(pd);
       const eff = { ...initialSelections(groups), ...(choiceOptionSelections[pid] ?? {}) };
-      const chosen = chosenOptions(groups, eff);
-      total += chosen.reduce((s, o) => s + o.priceDelta, 0) * groupItemQuantity;
+      const chosen = chosenOptions(groups, eff, choiceQuantities[pid]);
+      total += chosen.reduce((s, o) => s + o.priceDelta * (o.quantity ?? 1), 0) * groupItemQuantity;
     }
     return total;
-  }, [combo, items, productDetails, selections, choiceSelections, choiceProductDetails, choiceOptionSelections, choiceGroups]);
+  }, [combo, items, productDetails, selections, choiceSelections, choiceProductDetails, choiceOptionSelections, choiceGroups, quantities, choiceQuantities]);
 
   const unitPrice = Number(combo?.price ?? 0) + optionsTotal;
   const total = unitPrice * quantity;
@@ -200,7 +225,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
       const pid = ci.products.id;
       const pd = productDetails[pid];
       if (!pd) continue;
-      const groups = toOptionGroups(pd);
+      const groups = comboGroupsOf(pd);
       const eff = { ...initialSelections(groups), ...(selections[pid] ?? {}) };
       if (missingRequired(groups, eff).length > 0) n += 1;
     }
@@ -213,7 +238,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
     for (const pid of Object.values(choiceSelections).flat()) {
       const pd = choiceProductDetails[pid];
       if (!pd) continue;
-      const groups = toOptionGroups(pd);
+      const groups = comboGroupsOf(pd);
       const eff = { ...initialSelections(groups), ...(choiceOptionSelections[pid] ?? {}) };
       if (missingRequired(groups, eff).length > 0) n += 1;
     }
@@ -232,6 +257,21 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
         return !pd || pd.is_available;
       });
 
+  // Tên những món đang tạm hết trong lựa chọn hiện tại (món con hoặc món nước
+  // khách đã tick). Không có dòng này thì nút thêm vào giỏ chỉ "im lặng" khoá.
+  const soldOutNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const ci of items) {
+      const pd = productDetails[ci.products.id];
+      if (pd && !pd.is_available) names.add(ci.products.name);
+    }
+    for (const pid of Object.values(choiceSelections).flat()) {
+      const pd = choiceProductDetails[pid];
+      if (pd && !pd.is_available) names.add(pd.name);
+    }
+    return [...names];
+  }, [items, productDetails, choiceSelections, choiceProductDetails]);
+
   const canAdd = Boolean(combo?.is_available) && allComponentsAvailable && missingCount === 0;
 
   function handleAdd() {
@@ -239,15 +279,15 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
     const components: ComboComponentSelection[] = items.map((ci) => {
       const pid = ci.products.id;
       const pd = productDetails[pid];
-      const groups = pd ? toOptionGroups(pd) : [];
+      const groups = pd ? comboGroupsOf(pd) : [];
       const eff = pd ? { ...initialSelections(groups), ...(selections[pid] ?? {}) } : {};
-      const chosen = pd ? chosenOptions(groups, eff) : [];
+      const chosen = pd ? chosenOptions(groups, eff, quantities[pid]) : [];
       return {
         productId: pid,
         productName: ci.products.name,
         componentQuantity: ci.quantity,
         options: chosen,
-        optionsPrice: chosen.reduce((s, o) => s + o.priceDelta, 0) * ci.quantity,
+        optionsPrice: chosen.reduce((s, o) => s + o.priceDelta * (o.quantity ?? 1), 0) * ci.quantity,
       };
     });
 
@@ -256,9 +296,9 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
         const pd = choiceProductDetails[pid];
         const groupItem = g.items.find((it) => it.product_id === pid);
         const qty = groupItem?.quantity ?? 1;
-        const groups = pd ? toOptionGroups(pd) : [];
+        const groups = pd ? comboGroupsOf(pd) : [];
         const eff = pd ? { ...initialSelections(groups), ...(choiceOptionSelections[pid] ?? {}) } : {};
-        const chosen = pd ? chosenOptions(groups, eff) : [];
+        const chosen = pd ? chosenOptions(groups, eff, choiceQuantities[pid]) : [];
         return {
           groupId: g.id,
           groupName: g.name,
@@ -266,7 +306,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
           productName: pd?.name ?? pid,
           componentQuantity: qty,
           options: chosen,
-          optionsPrice: chosen.reduce((s, o) => s + o.priceDelta, 0) * qty,
+          optionsPrice: chosen.reduce((s, o) => s + o.priceDelta * (o.quantity ?? 1), 0) * qty,
         };
       }),
     );
@@ -387,7 +427,7 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
               {items.map((item) => {
                 const pid = item.products.id;
                 const pd = productDetails[pid];
-                const groups = pd ? toOptionGroups(pd) : [];
+                const groups = pd ? comboGroupsOf(pd) : [];
                 const eff = pd ? { ...initialSelections(groups), ...(selections[pid] ?? {}) } : {};
                 return (
                   <li key={pid} className="flex flex-col gap-2">
@@ -409,19 +449,41 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
                     </div>
                     {groups.length > 0 && (
                       <div className="flex flex-col gap-3 pl-0">
-                        {groups.map((g) => (
-                          <OptionGroup
-                            key={g.id}
-                            group={g}
-                            selected={eff[g.id] ?? []}
-                            onChange={(ids) =>
-                              setSelections((prev) => ({
-                                ...prev,
-                                [pid]: { ...(prev[pid] ?? {}), [g.id]: ids },
-                              }))
-                            }
-                          />
-                        ))}
+                        {groups.map((g) =>
+                          isSizeGroup(g) ? (
+                            <SizeGroup
+                              key={g.id}
+                              group={g}
+                              selected={eff[g.id]}
+                              quantities={quantities[pid] ?? {}}
+                              onSelect={(optionId) => pickSize(pid, g, optionId)}
+                            />
+                          ) : g.source === "topping" ? (
+                            <ToppingQuantityGroup
+                              key={g.id}
+                              group={g}
+                              quantities={quantities[pid] ?? {}}
+                              onChange={(optionId, qty) =>
+                                setQuantities((prev) => ({
+                                  ...prev,
+                                  [pid]: { ...(prev[pid] ?? {}), [optionId]: qty },
+                                }))
+                              }
+                            />
+                          ) : (
+                            <OptionGroup
+                              key={g.id}
+                              group={g}
+                              selected={eff[g.id] ?? []}
+                              onChange={(ids) =>
+                                setSelections((prev) => ({
+                                  ...prev,
+                                  [pid]: { ...(prev[pid] ?? {}), [g.id]: ids },
+                                }))
+                              }
+                            />
+                          ),
+                        )}
                       </div>
                     )}
                   </li>
@@ -444,20 +506,38 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
                         (chọn {min === max ? min : `${min}–${max}`})
                       </span>
                     </p>
+                    {group.items.some(
+                      (it) => choiceProductDetails[it.product_id]?.is_available === false,
+                    ) && (
+                      <p className="text-label-xs text-on-surface-variant">
+                        Món có nhãn “Tạm hết” hiện không chọn được.
+                      </p>
+                    )}
                     <div className="flex flex-col gap-2">
                       {group.items.map((it) => {
                         const pd = choiceProductDetails[it.product_id];
                         const productName = it.product_name ?? choiceProductNames[it.product_id] ?? pd?.name ?? "Món ăn";
                         const isSelected = (choiceSelections[group.id] ?? []).includes(it.product_id);
-                        const groups = pd ? toOptionGroups(pd) : [];
+                        const groups = pd ? comboGroupsOf(pd) : [];
                         const eff = pd ? { ...initialSelections(groups), ...(choiceOptionSelections[it.product_id] ?? {}) } : {};
+                        // Món nước có thể tạm hết: không cho tick, ghi rõ "Tạm hết"
+                        // ngay trong danh sách thay vì ẩn mất hay để khách chọn rồi mới báo.
+                        const soldOut = pd ? !pd.is_available : false;
+                        const sizeGroup = groups.find(isSizeGroup);
                         return (
-                          <div key={it.product_id} className="flex flex-col gap-2 rounded-card border border-outline-variant/40 p-3">
-                            <label className="flex items-center gap-3">
+                          <div
+                            key={it.product_id}
+                            className={`flex flex-col gap-2 rounded-card border p-3 ${
+                              soldOut
+                                ? "border-error-container bg-error-container/30"
+                                : "border-outline-variant/40"
+                            }`}
+                          >
+                            <label className={`flex items-center gap-3 ${soldOut ? "cursor-not-allowed" : ""}`}>
                               <input
                                 type="checkbox"
                                 checked={isSelected}
-                                disabled={!isSelected && (choiceSelections[group.id]?.length ?? 0) >= max}
+                                disabled={soldOut || (!isSelected && (choiceSelections[group.id]?.length ?? 0) >= max)}
                                 onChange={() => {
                                   setChoiceSelections((prev) => {
                                     const cur = prev[group.id] ?? [];
@@ -469,26 +549,73 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
                                   });
                                 }}
                               />
-                              <span className="text-body-md font-medium text-on-surface">
+                              <span
+                                className={`text-body-md font-medium ${
+                                  soldOut ? "text-on-surface-variant line-through" : "text-on-surface"
+                                }`}
+                              >
                                 {productName}
                                 {it.quantity > 1 && ` x${it.quantity}`}
                               </span>
+                              {soldOut ? (
+                                <span className="ml-auto shrink-0 rounded-full bg-error-container px-2 py-0.5 text-label-xs font-bold text-on-error-container">
+                                  Tạm hết
+                                </span>
+                              ) : (
+                                sizeGroup && (
+                                  <span className="ml-auto shrink-0 text-label-xs font-semibold text-on-surface-variant">
+                                    {sizeGroupLabels(sizeGroup).join(" / ")}
+                                  </span>
+                                )
+                              )}
                             </label>
+                            {soldOut && isSelected && (
+                              <p className="rounded-card bg-error-container px-3 py-2 text-label-sm font-medium text-on-error-container">
+                                {productName} vừa tạm hết — bỏ chọn món này hoặc chọn món khác.
+                              </p>
+                            )}
                             {isSelected && groups.length > 0 && (
                               <div className="flex flex-col gap-2 pl-6">
-                                {groups.map((g) => (
-                                  <OptionGroup
-                                    key={g.id}
-                                    group={g}
-                                    selected={eff[g.id] ?? []}
-                                    onChange={(ids) =>
-                                      setChoiceOptionSelections((prev) => ({
-                                        ...prev,
-                                        [it.product_id]: { ...(prev[it.product_id] ?? {}), [g.id]: ids },
-                                      }))
-                                    }
-                                  />
-                                ))}
+                                {groups.map((g) =>
+                                  isSizeGroup(g) ? (
+                                    <SizeGroup
+                                      key={g.id}
+                                      group={g}
+                                      selected={eff[g.id]}
+                                      quantities={choiceQuantities[it.product_id] ?? {}}
+                                      onSelect={(optionId) =>
+                                        pickChoiceSize(it.product_id, g, optionId)
+                                      }
+                                    />
+                                  ) : g.source === "topping" ? (
+                                    <ToppingQuantityGroup
+                                      key={g.id}
+                                      group={g}
+                                      quantities={choiceQuantities[it.product_id] ?? {}}
+                                      onChange={(optionId, qty) =>
+                                        setChoiceQuantities((prev) => ({
+                                          ...prev,
+                                          [it.product_id]: {
+                                            ...(prev[it.product_id] ?? {}),
+                                            [optionId]: qty,
+                                          },
+                                        }))
+                                      }
+                                    />
+                                  ) : (
+                                    <OptionGroup
+                                      key={g.id}
+                                      group={g}
+                                      selected={eff[g.id] ?? []}
+                                      onChange={(ids) =>
+                                        setChoiceOptionSelections((prev) => ({
+                                          ...prev,
+                                          [it.product_id]: { ...(prev[it.product_id] ?? {}), [g.id]: ids },
+                                        }))
+                                      }
+                                    />
+                                  ),
+                                )}
                               </div>
                             )}
                           </div>
@@ -504,6 +631,20 @@ export default function ComboDetailPage({ slug: propSlug, onClose }: { slug?: st
           {/* Sticky add to cart bar */}
           <div className="fixed inset-x-0 bottom-0 z-40 px-4 pt-2 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] md:static md:p-0">
             <div className="mx-auto max-w-md md:max-w-none">
+              {combo.is_available && (soldOutNames.length > 0 || missingCount > 0) && (
+                <div className="mb-2 flex flex-col gap-1.5">
+                  {soldOutNames.length > 0 && (
+                    <p className="rounded-card bg-error-container px-3 py-2 text-label-sm font-medium text-on-error-container">
+                      Đã tạm hết: {soldOutNames.join(", ")}. Vui lòng bỏ chọn hoặc chọn món khác.
+                    </p>
+                  )}
+                  {missingCount > 0 && (
+                    <p className="rounded-card bg-surface-container-high px-3 py-2 text-label-sm text-on-surface-variant">
+                      Chọn đủ món còn thiếu ở trên để thêm vào giỏ.
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-between gap-3 rounded-sheet bg-surface-container-lowest p-3 shadow-sheet border border-outline-variant md:bg-surface-container-lowest">
                 <QuantityStepper value={quantity} onChange={setQuantity} />
 

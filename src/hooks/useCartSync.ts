@@ -110,11 +110,24 @@ function checkLine(item: CartItem, snapshot: CartSyncSnapshot): LineCheck {
     };
   }
 
-  const unitBase = discountedPrice(product.base_price, product.discount_type, product.discount_value);
-  const optionsPrice = item.options.reduce(
-    (sum, o) => sum + Number(snapshot.options[o.optionId]!.price_delta),
-    0,
-  );
+  // Tính y hệt create-order: nhóm replace (biến thể/kích cỡ) thay giá gốc,
+  // nhóm delta và topping cộng thêm theo số lượng. Lệch công thức ở đây sẽ
+  // khiến giỏ báo "đổi giá" sai và ghi đè một mức giá khác với server.
+  let unitBase = discountedPrice(product.base_price, product.discount_type, product.discount_value);
+  let replaceBase: number | null = null;
+  let optionsPrice = 0;
+
+  for (const o of item.options) {
+    const fresh = snapshot.options[o.optionId]!;
+    const delta = Number(fresh.price_delta);
+    if (fresh.price_mode === "replace") {
+      replaceBase = replaceBase === null ? delta : Math.max(replaceBase, delta);
+      continue;
+    }
+    optionsPrice += delta * Math.max(1, Number(o.quantity) || 1);
+  }
+
+  if (replaceBase !== null) unitBase = Math.max(0, replaceBase);
   const unitPrice = Math.max(0, unitBase + optionsPrice);
 
   if (unitPrice !== item.unitPrice) {

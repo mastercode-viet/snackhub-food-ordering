@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, NotebookPen, ShoppingBag } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import ProductImage from "@/components/product/ProductImage";
 import OptionGroup, { type OptionGroupData } from "@/components/product/OptionGroup";
+import ToppingQuantityGroup from "@/components/product/ToppingQuantityGroup";
+import SizeGroup, { isSizeGroup } from "@/components/product/SizeGroup";
 import QuantityStepper from "@/components/product/QuantityStepper";
 import { Skeleton } from "@/components/Skeleton";
 import EmptyState from "@/components/ui/EmptyState";
@@ -11,12 +13,12 @@ import ErrorState from "@/components/ui/ErrorState";
 import { useProductDetail } from "@/hooks/useMenu";
 import { discountAmountLabel, discountedPrice, formatVnd } from "@/lib/format";
 import {
-  chosenOptions,
+  computeProductPrice,
   initialSelections,
   missingRequired,
   toOptionGroups,
 } from "@/lib/productOptions";
-import { useCartStore, type CartOption } from "@/store/cart";
+import { useCartStore } from "@/store/cart";
 import { toast } from "@/store/toast";
 
 export default function ProductDetailPage() {
@@ -28,24 +30,57 @@ export default function ProductDetailPage() {
   const { data: product, loading, error, reload } = useProductDetail(slug);
 
   const [selections, setSelections] = useState<Record<string, string[]>>({});
-  const [quantity, setQuantity] = useState(1);
-  const [note, setNote] = useState("");
-  const [touched, setTouched] = useState(false);
-
   const groups: OptionGroupData[] = useMemo(
     () => (product ? toOptionGroups(product) : []),
     [product],
   );
 
+  const defaultQuantities = useMemo(() => {
+    const q: Record<string, number> = {};
+    for (const group of groups) {
+      if (group.source === "topping") {
+        for (const opt of group.product_options) {
+          q[opt.id] = Number(opt.default_quantity ?? 0);
+        }
+      }
+    }
+    return q;
+  }, [groups]);
+  const [quantities, setQuantities] = useState<Record<string, number>>(
+    () => defaultQuantities,
+  );
+
+  // `useState` chỉ lấy giá trị khởi tạo ở lần render đầu, mà lúc đó sản phẩm
+  // chưa tải xong nên `groups` còn rỗng. Phải đồng bộ lại khi nhóm topping
+  // xuất hiện; nếu không, topping có `default_quantity` bị coi là 0 và rơi
+  // khỏi đơn dù quán đã đặt mặc định chọn sẵn.
+  const seededProductId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!product || seededProductId.current === product.id) return;
+    seededProductId.current = product.id;
+    const next: Record<string, number> = {};
+    for (const group of groups) {
+      if (group.source !== "topping") continue;
+      for (const opt of group.product_options) {
+        next[opt.id] = Number(opt.default_quantity ?? 0);
+      }
+    }
+    // Chỉ seed MỘT lần cho mỗi sản phẩm: dữ liệu tự làm mới không được xoá
+    // số lượng topping khách đang chọn dở.
+    setQuantities(next);
+  }, [product, groups]);
+  const [quantity, setQuantity] = useState(1);
+  const [note, setNote] = useState("");
+  const [touched, setTouched] = useState(false);
+
   const initialised = useMemo(() => initialSelections(groups), [groups]);
 
   const effective: Record<string, string[]> = { ...initialised, ...selections };
 
-  const chosen: CartOption[] = useMemo(
-    () => chosenOptions(groups, effective),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [groups, JSON.stringify(effective)],
-  );
+  // Chỉ tính giá khi product đã có dữ liệu — nếu đang loading hoặc error đã trả về EmptyState/ErrorState ở trên rồi.
+  const { unitBase, optionsPrice, unitPrice, chosen } = product
+    ? computeProductPrice({ product, groups, selected: effective, quantities })
+    : { unitBase: discountedPrice(0, "percent", 0), optionsPrice: 0, unitPrice: 0, chosen: [] };
 
   function goBack() {
     if (location.key !== "default") navigate(-1);
@@ -74,11 +109,10 @@ export default function ProductDetailPage() {
     );
   }
 
-  const unitBase = discountedPrice(product.base_price, product.discount_type, product.discount_value);
-  const optionsPrice = chosen.reduce((s, o) => s + o.priceDelta, 0);
-  const unitPrice = Math.max(0, unitBase + optionsPrice);
+  // Computing total and savings here is safe because we've already returned early
+  // if loading, error, or !product (lines 69, 71, 79). At this point product is guaranteed truthy.
   const total = unitPrice * quantity;
-  const savings = product.base_price - unitBase;
+  const savings = product?.base_price != null ? product.base_price - unitBase : 0;
 
   const missingGroups = missingRequired(groups, effective);
   const canAdd = product.is_available && missingGroups.length === 0;
@@ -185,14 +219,55 @@ export default function ProductDetailPage() {
             )}
           </section>
 
-          {groups.map((group) => (
-            <OptionGroup
-              key={group.id}
-              group={group}
-              selected={effective[group.id] ?? []}
-              onChange={(ids) => setSelections((prev) => ({ ...prev, [group.id]: ids }))}
-            />
-          ))}
+          {groups.map((group) =>
+            isSizeGroup(group) ? (
+              <SizeGroup
+                key={group.id}
+                group={group}
+                selected={effective[group.id]}
+                quantities={quantities}
+                onSelect={(optionId) => {
+                  setSelections((prev) => ({
+                    ...prev,
+                    [group.id]: optionId ? [optionId] : [],
+                  }));
+                  setQuantities((prev) => {
+                    const next = { ...prev };
+                    for (const opt of group.product_options) {
+                      next[opt.id] = opt.id === optionId ? 1 : 0;
+                    }
+                    return next;
+                  });
+                }}
+              />
+            ) : group.source === "topping" ? (
+              <ToppingQuantityGroup
+                key={group.id}
+                group={group}
+                quantities={quantities}
+                onChange={(optionId, qty) => {
+                  setQuantities((prev) => ({ ...prev, [optionId]: qty }));
+                  setSelections((prev) => {
+                    const cur = prev[group.id] ?? [];
+                    if (qty > 0 && !cur.includes(optionId)) {
+                      return { ...prev, [group.id]: [...cur, optionId] };
+                    }
+                    if (qty === 0) {
+                      return { ...prev, [group.id]: cur.filter((id) => id !== optionId) };
+                    }
+                    return prev;
+                  });
+                }}
+              />
+            ) : (
+              <OptionGroup
+                key={group.id}
+                group={group}
+                selected={effective[group.id] ?? []}
+                onChange={(ids) => setSelections((prev) => ({ ...prev, [group.id]: ids }))}
+              />
+            ),
+          )}
 
           <section className="flex flex-col gap-space-sm rounded-card-lg bg-surface-container-lowest p-5 shadow-card border border-outline-variant/40">
             <div className="flex items-center gap-2">

@@ -177,12 +177,26 @@ export default function CheckoutPage() {
         desired_delivery_time: scheduled && !inStore ? desiredTimeToDate(desiredTime).toISOString() : undefined,
         items: items.map((i) =>
           i.kind === "combo"
-            ? { kind: "combo" as const, combo_id: i.comboId, quantity: i.quantity, item_note: i.note ?? undefined, components: i.components.map((c) => ({ product_id: c.productId, option_ids: c.options.map((o) => o.optionId) })), choices: i.choices.map((c) => ({ group_id: c.groupId, product_id: c.productId, option_ids: c.options.map((o) => o.optionId) })) }
+            ? {
+                kind: "combo" as const,
+                combo_id: i.comboId,
+                quantity: i.quantity,
+                item_note: i.note ?? undefined,
+                components: i.components.map((c) => ({
+                  product_id: c.productId,
+                  options: c.options.map((o) => ({ option_id: o.optionId, quantity: o.quantity ?? 1 })),
+                })),
+                choices: i.choices.map((c) => ({
+                  group_id: c.groupId,
+                  product_id: c.productId,
+                  options: c.options.map((o) => ({ option_id: o.optionId, quantity: o.quantity ?? 1 })),
+                })),
+              }
             : {
                 kind: "product" as const,
                 product_id: i.productId,
                 quantity: i.quantity,
-                option_ids: i.options.map((o) => o.optionId),
+                options: i.options.map((o) => ({ option_id: o.optionId, quantity: o.quantity ?? 1 })),
                 item_note: i.note ?? undefined,
               },
         ),

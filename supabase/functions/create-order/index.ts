@@ -49,6 +49,13 @@ interface BuiltItem {
     option_id: string;
     option_name: string;
     price_delta: number;
+    quantity: number;
+    /** "replace" = biến thể/kích cỡ thay giá gốc; "delta" = cộng thêm. */
+    price_mode: "delta" | "replace";
+    /** "topping" = lấy từ topping_items (nhóm dùng chung nhiều món). */
+    source: "option" | "topping";
+    /** Số tiền lựa chọn này thực sự cộng vào đơn giá (0 với nhóm replace). */
+    line_price: number;
   }>;
   options_price: number;
   unit_price: number;
@@ -303,9 +310,9 @@ async function buildItems(
   const comboComponentProductIds = [...new Set(comboLines.flatMap((i) => (i.components ?? []).map((c) => c.product_id)))];
   const optionIds = [
     ...new Set([
-      ...productLines.flatMap((i) => i.option_ids),
-      ...comboLines.flatMap((i) => (i.components ?? []).flatMap((c) => c.option_ids)),
-      ...comboLines.flatMap((i) => (i.choices ?? []).flatMap((c) => c.option_ids)),
+      ...productLines.flatMap((i) => i.options.map((o) => o.option_id)),
+      ...comboLines.flatMap((i) => (i.components ?? []).flatMap((c) => c.options.map((o) => o.option_id))),
+      ...comboLines.flatMap((i) => (i.choices ?? []).flatMap((c) => c.options.map((o) => o.option_id))),
     ]),
   ];
 
@@ -323,18 +330,74 @@ async function buildItems(
   }
 
   const groupProductIds = [...new Set([...productIds, ...comboComponentProductIds])];
-  const { data: groups, error: gErr } = await db
-    .from("product_option_groups")
-    .select("id, product_id, name, is_required, min_select, max_select")
-    .in("product_id", groupProductIds);
-  if (gErr) throw gErr;
-  const groupById = new Map(groups!.map((g) => [g.id, g]));
 
-  const optionById = new Map<string, { id: string; group_id: string; name: string; price_delta: number; is_available: boolean }>();
+  type OptionGroupRow = {
+    id: string;
+    product_id: string | null;
+    name: string;
+    is_required: boolean;
+    min_select: number;
+    max_select: number;
+    price_mode: string;
+    quantity_enabled: boolean;
+  };
+
+  const groupById = new Map<string, OptionGroupRow>();
+  /** Nhóm nào được phép dùng cho món nào — nhóm riêng + nhóm dùng chung được gán. */
+  const groupIdsByProduct = new Map<string, Set<string>>();
+
+  async function loadOptionGroups(productIdList: string[]) {
+    if (productIdList.length === 0) return;
+
+    const { data: ownGroups, error: gErr } = await db
+      .from("product_option_groups")
+      .select("id, product_id, name, is_required, min_select, max_select, price_mode, quantity_enabled")
+      .in("product_id", productIdList);
+    if (gErr) throw gErr;
+    for (const g of (ownGroups ?? []) as OptionGroupRow[]) {
+      if (!g.product_id) continue;
+      groupById.set(g.id, g);
+      const set = groupIdsByProduct.get(g.product_id) ?? new Set<string>();
+      set.add(g.id);
+      groupIdsByProduct.set(g.product_id, set);
+    }
+
+    // Nhóm dùng chung (Size M/L tạo một lần, gán cho nhiều món).
+    const { data: links, error: lErr } = await db
+      .from("product_option_group_links")
+      .select(
+        "product_id, product_option_groups(id, product_id, name, is_required, min_select, max_select, price_mode, quantity_enabled)",
+      )
+      .in("product_id", productIdList);
+    if (lErr) {
+      // Chưa chạy migration nhóm dùng chung: 42P01 hoặc PGRST205 (schema cache).
+      const missingTable =
+        lErr.code === "42P01" ||
+        lErr.code === "PGRST205" ||
+        /product_option_group_links/i.test(lErr.message ?? "");
+      if (missingTable) return;
+      throw lErr;
+    }
+    for (const link of links ?? []) {
+      const g = link.product_option_groups as OptionGroupRow | null;
+      if (!g) continue;
+      groupById.set(g.id, g);
+      const set = groupIdsByProduct.get(link.product_id) ?? new Set<string>();
+      set.add(g.id);
+      groupIdsByProduct.set(link.product_id, set);
+    }
+  }
+
+  await loadOptionGroups(groupProductIds);
+
+  const optionById = new Map<
+    string,
+    { id: string; group_id: string; name: string; price_delta: number; is_available: boolean; max_quantity?: number }
+  >();
   if (optionIds.length > 0) {
     const { data: options, error: oErr } = await db
       .from("product_options")
-      .select("id, group_id, name, price_delta, is_available")
+      .select("id, group_id, name, price_delta, is_available, max_quantity")
       .in("id", optionIds);
     if (oErr) throw oErr;
     for (const o of options!) optionById.set(o.id, o);
@@ -343,7 +406,10 @@ async function buildItems(
   // ── Topping: id nào không tra được ở product_options thì tra tiếp ở
   // topping_items. Nhóm topping dùng chung cho nhiều món nên không kiểm tra
   // quyền gán bằng product_id như option lẻ, mà qua product_topping_groups.
-  const toppingById = new Map<string, { id: string; group_id: string; name: string; price_delta: number; is_available: boolean }>();
+  const toppingById = new Map<
+    string,
+    { id: string; group_id: string; name: string; price_delta: number; is_available: boolean; max_quantity?: number }
+  >();
   const toppingGroupById = new Map<string, { id: string; name: string }>();
   const toppingGroupIdsByProduct = new Map<string, Set<string>>();
 
@@ -351,7 +417,7 @@ async function buildItems(
   if (unresolvedIds.length > 0) {
     const { data: toppings, error: tErr } = await db
       .from("topping_items")
-      .select("id, group_id, name, price_delta, is_available")
+      .select("id, group_id, name, price_delta, is_available, max_quantity")
       .in("id", unresolvedIds);
     if (tErr) throw tErr;
     for (const t of toppings!) toppingById.set(t.id, t);
@@ -485,11 +551,7 @@ async function buildItems(
       .in("id", allComboRelatedProductIds);
     for (const p of relatedProducts ?? []) relatedProductNameById.set(p.id, p.name);
 
-    const { data: extraGroups } = await db
-      .from("product_option_groups")
-      .select("id, product_id, name, is_required, min_select, max_select")
-      .in("product_id", allComboRelatedProductIds);
-    for (const g of extraGroups ?? []) groupById.set(g.id, g);
+    await loadOptionGroups(allComboRelatedProductIds);
 
     if (toppingGroupById.size > 0) {
       const { data: extraAssigns } = await db
@@ -531,14 +593,17 @@ async function buildItems(
           return { error: "OPTION_MISMATCH", message: "Thành phần không thuộc combo đã chọn." };
         }
 
-        for (const optId of comp.option_ids) {
-          const opt = optionById.get(optId);
-          if (opt) {
-            if (!opt.is_available) {
-              return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${opt.name}\" đang tạm hết.` };
+        for (const opt of comp.options) {
+          const optId = opt.option_id;
+          const optItem = optionById.get(optId);
+          if (optItem) {
+            if (!optItem.is_available) {
+              return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${optItem.name}\" đang tạm hết.` };
             }
-            const group = groupById.get(opt.group_id);
-            if (!group || group.product_id !== comp.product_id) {
+            // `opt` chỉ có { option_id, quantity } — nhóm phải tra theo option
+            // vừa đọc từ DB, không phải theo payload của client.
+            const group = groupById.get(optItem.group_id);
+            if (!group || !groupIdsByProduct.get(comp.product_id)?.has(group.id)) {
               return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
             }
             chosen.push({
@@ -546,17 +611,26 @@ async function buildItems(
               product_name: comboItem.name,
               group_id: group.id,
               group_name: group.name,
-              option_id: opt.id,
-              option_name: opt.name,
-              price_delta: Number(opt.price_delta),
+              option_id: optId,
+              option_name: optItem.name,
+              price_delta: Number(optItem.price_delta),
+              quantity: Number(opt.quantity ?? 1),
+              // Combo cộng phụ phí theo số lượng thành phần (giống client).
+              price_mode: "delta",
+              source: "option",
+              line_price: Number(optItem.price_delta) * comboItem.quantity,
             });
             globalCountByGroup.set(group.id, (globalCountByGroup.get(group.id) ?? 0) + 1);
-            comboOptionsPrice += Number(opt.price_delta) * comboItem.quantity;
+            comboOptionsPrice += Number(optItem.price_delta) * comboItem.quantity;
             continue;
           }
 
           const topping = toppingById.get(optId);
-          if (!topping) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
+          // Id không còn trong DB (admin đã xoá topping/biến thể sau khi khách thêm
+
+          // vào giỏ): bỏ qua lựa chọn cũ đó, không chặn cả đơn — giá vẫn tính lại từ DB.
+
+          if (!topping) continue;
           if (!topping.is_available) {
             return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${topping.name}\" đang tạm hết.` };
           }
@@ -574,6 +648,10 @@ async function buildItems(
             option_id: topping.id,
             option_name: topping.name,
             price_delta: Number(topping.price_delta),
+            quantity: Number(opt.quantity ?? 1),
+            price_mode: "delta",
+            source: "topping",
+            line_price: Number(topping.price_delta) * comboItem.quantity,
           });
           // topping không đếm countByGroup (tuỳ chọn)
           comboOptionsPrice += Number(topping.price_delta) * comboItem.quantity;
@@ -581,8 +659,15 @@ async function buildItems(
       }
 
       // Nhóm bắt buộc phải chọn đủ cho từng thành phần combo.
+      // Bỏ nhóm price_mode = "replace": giá combo đã bao trọn món, giao diện combo
+      // (comboGroupsOf) cũng ẩn các nhóm thay-giá-gốc nên khách không thể chọn —
+      // nếu server vẫn đòi thì mọi combo chứa món có nhóm đó đều không đặt được.
       for (const ci of comboItems) {
-        for (const g of groups!.filter((gr) => gr.product_id === ci.product_id)) {
+        const itemGroups = [...(groupIdsByProduct.get(ci.product_id) ?? [])]
+          .map((id) => groupById.get(id))
+          .filter((g): g is OptionGroupRow => Boolean(g))
+          .filter((g) => g.price_mode !== "replace");
+        for (const g of itemGroups) {
           const n = globalCountByGroup.get(g.id) ?? 0;
           if (g.is_required && n < Math.max(1, g.min_select)) {
             return { error: "OPTION_REQUIRED", message: `Vui lòng chọn \"${g.name}\".` };
@@ -627,12 +712,15 @@ async function buildItems(
             group_id: g.id,
           });
           // validate options for chosen product
-          for (const optId of ch.option_ids ?? []) {
-            const opt = optionById.get(optId);
-            if (opt) {
-              if (!opt.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${opt.name}\" đang tạm hết.` };
-              const grp = groupById.get(opt.group_id);
-              if (!grp || grp.product_id !== ch.product_id) {
+          for (const opt of ch.options ?? []) {
+            const optId = opt.option_id;
+            const optItem = optionById.get(optId);
+            if (optItem) {
+              if (!optItem.is_available) {
+                return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${optItem.name}\" đang tạm hết.` };
+              }
+              const grp = groupById.get(optItem.group_id);
+              if (!grp || !groupIdsByProduct.get(ch.product_id)?.has(grp.id)) {
                 return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
               }
               chosen.push({
@@ -640,16 +728,26 @@ async function buildItems(
                 product_name: relatedProductNameById.get(ch.product_id) ?? null,
                 group_id: grp.id,
                 group_name: grp.name,
-                option_id: opt.id,
-                option_name: opt.name,
-                price_delta: Number(opt.price_delta),
+                option_id: optId,
+                option_name: optItem.name,
+                price_delta: Number(optItem.price_delta),
+                quantity: Number(opt.quantity ?? 1),
+                price_mode: "delta",
+                source: "option",
+                line_price: Number(optItem.price_delta) * (groupItem.quantity ?? 1),
               });
-              comboOptionsPrice += Number(opt.price_delta) * (groupItem.quantity ?? 1);
+              comboOptionsPrice += Number(optItem.price_delta) * (groupItem.quantity ?? 1);
               continue;
             }
             const topping = toppingById.get(optId);
-            if (!topping) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
-            if (!topping.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${topping.name}\" đang tạm hết.` };
+            // Id không còn trong DB (admin đã xoá topping/biến thể sau khi khách thêm
+
+            // vào giỏ): bỏ qua lựa chọn cũ đó, không chặn cả đơn — giá vẫn tính lại từ DB.
+
+            if (!topping) continue;
+            if (!topping.is_available) {
+              return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn \"${topping.name}\" đang tạm hết.` };
+            }
             const toppingGroup = toppingGroupById.get(topping.group_id);
             if (!toppingGroup) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
             const allowedTopping = toppingGroupIdsByProduct.get(ch.product_id)?.has(toppingGroup.id);
@@ -659,9 +757,13 @@ async function buildItems(
               product_name: relatedProductNameById.get(ch.product_id) ?? null,
               group_id: toppingGroup.id,
               group_name: toppingGroup.name,
-              option_id: topping.id,
+              option_id: optId,
               option_name: topping.name,
               price_delta: Number(topping.price_delta),
+              quantity: Number(opt.quantity ?? 1),
+              price_mode: "delta",
+              source: "topping",
+              line_price: Number(topping.price_delta) * (groupItem.quantity ?? 1),
             });
             comboOptionsPrice += Number(topping.price_delta) * (groupItem.quantity ?? 1);
           }
@@ -698,34 +800,54 @@ async function buildItems(
     const chosen: BuiltItem["options"] = [];
     const countByGroup = new Map<string, number>();
 
-    for (const optId of line.option_ids) {
-      const opt = optionById.get(optId);
+    for (const opt of line.options) {
+      const optId = opt.option_id;
+      const qty = Number(opt.quantity ?? 0);
+      const optItem = optionById.get(optId);
 
-      if (opt) {
-        if (!opt.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn "${opt.name}" đang tạm hết.` };
+      if (optItem) {
+        if (!optItem.is_available) return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn "${optItem.name}" đang tạm hết.` };
 
-        const group = groupById.get(opt.group_id);
-        // Chặn ghép option của món khác vào món này.
-        if (!group || group.product_id !== line.product_id) {
+        const group = groupById.get(optItem.group_id);
+        // Chọn ghép option của món khác vào món này.
+        if (!group || !groupIdsByProduct.get(line.product_id)?.has(group.id)) {
           return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
         }
 
+        // Nhóm số lượng (quantity_enabled, topping): chỉ chọn khi quantity > 0.
+        // Nhóm radio không số lượng: có mặt = đã chọn, coi là 1 đơn vị.
+        const quantityEnabled = Boolean(group.quantity_enabled);
+        const finalQty = quantityEnabled
+          ? Math.max(0, Math.min(qty, Number(optItem.max_quantity) > 1 ? Number(optItem.max_quantity) : 99))
+          : 1;
+        if (finalQty <= 0) continue;
+
+        const priceMode = group.price_mode === "replace" ? "replace" : "delta";
         chosen.push({
           product_id: line.product_id,
           product_name: product.name,
           group_id: group.id,
           group_name: group.name,
-          option_id: opt.id,
-          option_name: opt.name,
-          price_delta: Number(opt.price_delta),
+          option_id: optId,
+          option_name: optItem.name,
+          price_delta: Number(optItem.price_delta),
+          quantity: finalQty,
+          price_mode: priceMode,
+          source: "option",
+          // Nhóm replace thay giá gốc nên không cộng thêm đồng nào.
+          line_price: priceMode === "replace" ? 0 : Number(optItem.price_delta) * finalQty,
         });
         countByGroup.set(group.id, (countByGroup.get(group.id) ?? 0) + 1);
         continue;
       }
 
-      // Topping: không có ràng buộc bắt buộc/min/max nên không đếm countByGroup.
+      // Topping: không có trong product_options.
       const topping = toppingById.get(optId);
-      if (!topping) return { error: "OPTION_NOT_FOUND", message: "Tùy chọn không còn tồn tại." };
+      // Id không còn trong DB (admin đã xoá topping/biến thể sau khi khách thêm
+
+      // vào giỏ): bỏ qua lựa chọn cũ đó, không chặn cả đơn — giá vẫn tính lại từ DB.
+
+      if (!topping) continue;
       if (!topping.is_available) {
         return { error: "OPTION_UNAVAILABLE", message: `Tùy chọn "${topping.name}" đang tạm hết.` };
       }
@@ -735,6 +857,9 @@ async function buildItems(
         return { error: "OPTION_MISMATCH", message: "Tùy chọn không thuộc món đã chọn." };
       }
 
+      const finalQty = Math.max(0, Math.min(qty, Number(topping.max_quantity) > 1 ? Number(topping.max_quantity) : 99));
+      if (finalQty <= 0) continue;
+
       chosen.push({
         product_id: line.product_id,
         product_name: product.name,
@@ -743,34 +868,63 @@ async function buildItems(
         option_id: topping.id,
         option_name: topping.name,
         price_delta: Number(topping.price_delta),
+        quantity: finalQty,
+        price_mode: "delta",
+        source: "topping",
+        line_price: Number(topping.price_delta) * finalQty,
       });
+      // topping không đếm vào countByGroup (tuỳ chọn, không ràng buộc chọn đủ)
     }
 
     // Nhóm bắt buộc phải chọn đủ, và không vượt max_select.
-    for (const g of groups!.filter((g) => g.product_id === line.product_id)) {
+    const lineGroups = [...(groupIdsByProduct.get(line.product_id) ?? [])]
+      .map((id) => groupById.get(id))
+      .filter((g): g is OptionGroupRow => Boolean(g));
+    for (const g of lineGroups) {
       const n = countByGroup.get(g.id) ?? 0;
       if (g.is_required && n < Math.max(1, g.min_select)) {
         return { error: "OPTION_REQUIRED", message: `Vui lòng chọn "${g.name}" cho ${product.name}.` };
       }
       if (n > g.max_select) {
-        return { error: "OPTION_TOO_MANY", message: `"${g.name}" chỉ được chọn tối đa ${g.max_select}.` };
+        return { error: "OPTION_TOO_MANY", message: `"${g.name}" không được chọn nhiều hơn ${g.max_select}.` };
       }
     }
 
+    // Giá: áp dụng giảm giá của món, sau đó biến thể (SET_BASE_PRICE) thay thế giá.
     const cut =
       product.discount_type === "percent"
         ? Number(product.base_price) * (Number(product.discount_value) / 100)
         : Number(product.discount_value);
     const discounted = Math.max(0, Math.round(Number(product.base_price) - cut));
-    const optionsPrice = chosen.reduce((s, o) => s + o.price_delta, 0);
-    const unitPrice = Math.max(0, discounted + optionsPrice);
+    let basePrice = discounted;
+
+    // Biến thể SET_BASE_PRICE (price_mode = "replace"): giá lựa chọn
+    // thay thế toàn bộ giá cơ bản.
+    const replacePrices = new Map<string, number>();
+    for (const o of chosen) {
+      const group = groupById.get(o.group_id);
+      if (group?.price_mode === "replace") replacePrices.set(group.id, o.price_delta);
+    }
+    if (replacePrices.size > 0) {
+      basePrice = Math.max(0, ...replacePrices.values());
+    }
+
+    // Topping: price_delta × số lượng. Biến phần SET_BASE_PRICE (thay thế giá)
+    // đã được hai giá trị không gian.
+    const optionsPrice = chosen.reduce((s, o) => {
+      const group = groupById.get(o.group_id);
+      if (group?.price_mode === "replace") return s;
+      return s + o.price_delta * o.quantity;
+    }, 0);
+
+    const unitPrice = Math.max(0, basePrice + optionsPrice);
 
     items.push({
       product_id: product.id,
       combo_id: null,
       product_name: product.name,
       product_image_url: product.image_url,
-      base_price: Number(product.base_price),
+      base_price: basePrice,
       options: chosen,
       options_price: optionsPrice,
       unit_price: unitPrice,
@@ -783,3 +937,6 @@ async function buildItems(
 
   return { items };
 }
+
+
+

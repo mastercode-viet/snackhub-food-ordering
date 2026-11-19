@@ -1,6 +1,6 @@
 import { Plus, ShoppingBag } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import ProductImage from "@/components/product/ProductImage";
 import ErrorState from "@/components/ui/ErrorState";
@@ -8,7 +8,7 @@ import { ComboRailSkeleton } from "@/components/Skeleton";
 import ComboSheet from "@/components/home/ComboSheet";
 import { useAsync } from "@/hooks/useAsync";
 import { formatVnd } from "@/lib/format";
-import { fetchCombos, type ComboWithItems } from "@/lib/queries";
+import { fetchCombos, fetchProductsByIds, type ComboWithItems } from "@/lib/queries";
 
 /** Số chip món con hiển thị tối đa trên 1 thẻ trước khi rút gọn thành "+N". */
 const MAX_ITEM_CHIPS = 3;
@@ -23,6 +23,28 @@ const MAX_ITEM_CHIPS = 3;
 export default function ComboRail() {
   const { data, loading, error, reload } = useAsync<ComboWithItems[]>(fetchCombos, []);
 
+  // Món nước trong combo có thể tạm hết — card ngoài cần biết trạng thái này để
+  // không mời khách chọn một món đã hết. Gom id của MỌI combo rồi hỏi một lần.
+  const choiceIds = useMemo(
+    () => [
+      ...new Set(
+        (data ?? []).flatMap((combo) =>
+          (combo.choice_groups ?? []).flatMap((g) => g.items.map((it) => it.product_id)),
+        ),
+      ),
+    ],
+    [data],
+  );
+  const { data: availability } = useAsync<Record<string, boolean>>(
+    () =>
+      choiceIds.length > 0
+        ? fetchProductsByIds(choiceIds).then((products) =>
+            Object.fromEntries(products.map((p) => [p.id, p.is_available])),
+          )
+        : Promise.resolve({}),
+    [choiceIds.join(",")],
+  );
+
   if (!loading && (!data || data.length === 0)) return null;
 
   const body = loading && !data ? (
@@ -33,7 +55,7 @@ export default function ComboRail() {
     <ul className="no-scrollbar -mx-1 flex gap-3.5 overflow-x-auto px-1 pb-1.5 scroll-smooth">
       {data!.map((combo) => (
         <li key={combo.id} className="shrink-0">
-          <ComboCard combo={combo} />
+          <ComboCard combo={combo} availability={availability ?? {}} />
         </li>
       ))}
     </ul>
@@ -57,7 +79,13 @@ export default function ComboRail() {
   );
 }
 
-function ComboCard({ combo }: { combo: ComboWithItems }) {
+function ComboCard({
+  combo,
+  availability,
+}: {
+  combo: ComboWithItems;
+  availability: Record<string, boolean>;
+}) {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const chips = combo.combo_items
@@ -65,6 +93,8 @@ function ComboCard({ combo }: { combo: ComboWithItems }) {
     .map((i) => (i.quantity > 1 ? `${i.products.name} x${i.quantity}` : i.products.name));
   const shownChips = chips.slice(0, MAX_ITEM_CHIPS);
   const extraCount = chips.length - shownChips.length;
+  // Ngoài món chính, combo còn cho chọn món nước — card phải nói rõ chọn được gì.
+  const choiceGroups = (combo.choice_groups ?? []).filter((g) => g.items.length > 0);
 
   function handleAdd(e: React.MouseEvent) {
     e.preventDefault();
@@ -105,6 +135,27 @@ function ComboCard({ combo }: { combo: ComboWithItems }) {
               )}
             </div>
           )}
+
+          {choiceGroups.map((group) => (
+            <p key={group.id} className="line-clamp-2 text-label-xs leading-snug text-on-surface-variant">
+              <span className="font-bold text-secondary">
+                {(group.name || "Chọn kèm").trim()}:
+              </span>{" "}
+              {group.items.map((it, idx) => {
+                const soldOut = availability[it.product_id] === false;
+                return (
+                  <span
+                    key={`${it.product_id}-${idx}`}
+                    className={soldOut ? "text-error/80" : undefined}
+                  >
+                    {it.product_name ?? "Món trong combo"}
+                    {soldOut ? " (tạm hết)" : ""}
+                    {idx < group.items.length - 1 ? " · " : ""}
+                  </span>
+                );
+              })}
+            </p>
+          ))}
 
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <span className="text-label-lg font-extrabold text-primary">{formatVnd(Number(combo.price))}</span>

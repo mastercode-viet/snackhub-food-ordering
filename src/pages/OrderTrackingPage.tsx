@@ -374,10 +374,9 @@ export default function OrderTrackingPage() {
                     {item.product_name}{" "}
                     <span className="text-on-surface-variant font-semibold">×{item.quantity}</span>
                   </p>
-                  {item.options.length > 0 && (
+                  {item.options.length > 0 && item.combo_id && (
                     <p className="truncate text-body-sm text-on-surface-variant">
-                      {item.combo_id
-                        ? Object.entries(
+                      {Object.entries(
                             item.options.reduce<Record<string, string[]>>((acc, o) => {
                               const key = o.product_id ?? "other";
                               (acc[key] ??= []).push(o.option_name + (o.price_delta ? ` (+${formatVnd(o.price_delta)})` : ""));
@@ -389,9 +388,30 @@ export default function OrderTrackingPage() {
                               const label = comp?.product_name ?? item.options.find((o) => o.product_id === pid)?.product_name ?? "";
                               return label ? `${label}: ${names.join(", ")}` : names.join(", ");
                             })
-                            .join(" · ")
-                        : item.options.map((o) => o.option_name + (o.price_delta ? ` (+${formatVnd(o.price_delta)})` : "")).join(", ")}
+                        .join(" · ")}
                     </p>
+                  )}
+                  {item.options.length > 0 && !item.combo_id && (
+                    <ul className="mt-1 flex flex-col gap-0.5 border-l-2 border-outline-variant/70 pl-2.5 text-body-sm text-on-surface-variant">
+                      {item.options.map((o, i) => {
+                        const unit = o.price_delta || 0;
+                        const qty = o.quantity && o.quantity > 0 ? o.quantity : 1;
+                        const total = unit * qty;
+                        return (
+                          <li key={i} className="flex items-baseline justify-between gap-3">
+                            <span className="min-w-0 break-words">
+                              {o.option_name}
+                              {qty > 1 && (
+                                <span className="ml-1 font-semibold text-on-surface">×{qty}</span>
+                              )}
+                            </span>
+                            {total > 0 && (
+                              <span className="shrink-0 tabular-nums">+{formatVnd(total)}</span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                    {item.combo_items_snapshot.length > 0 && (
                      <div className="mt-0.5 flex flex-col gap-0.5">
