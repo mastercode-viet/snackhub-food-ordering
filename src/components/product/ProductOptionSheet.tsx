@@ -52,7 +52,12 @@ export default function ProductOptionSheet({
   const effective: Record<string, string[]> = { ...initialised, ...selections };
 
   // Số lượng mặc định của từng topping (tuỳ chọn mặc định = 0).
+  // Chỉ seed MỘT lần cho mỗi sản phẩm: dữ liệu tự làm mới không được xoá số
+  // lượng topping khách đang chọn dở.
+  const seededProductId = useRef<string | null>(null);
   useEffect(() => {
+    if (!product || seededProductId.current === product.id) return;
+    seededProductId.current = product.id;
     const q: Record<string, number> = {};
     for (const group of groups) {
       if (group.source === "topping") {
@@ -62,14 +67,14 @@ export default function ProductOptionSheet({
       }
     }
     setQuantities(q);
-  }, [groups]);
+  }, [product, groups]);
 
   // Chỉ tính giá khi product đã load xong — nếu chưa load thì loading state
   // đã render ra Skeleton/placeholder, không nên tính giá ở đây.
   const { unitBase, optionsPrice, unitPrice, chosen } = useMemo(
     () => (product ? computeProductPrice({ product, groups, selected: effective, quantities }) : { unitBase: 0, optionsPrice: 0, unitPrice: 0, chosen: [] }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [product, groups, JSON.stringify(effective), JSON.stringify(quantities)],
+    [product, groups, initialised, selections, quantities],
   );
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

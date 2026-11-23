@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ChevronRight, Plus, RotateCw, Search, Trash2, X } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import { LabeledSwitch, MoneyInput, inputClass } from "@/components/admin/AdminForm";
@@ -25,7 +25,13 @@ import {
   type AdminProduct,
 } from "@/lib/adminQueries";
 
-type RunFn = (action: () => Promise<unknown>, okMessage: string) => Promise<void>;
+type RunFn = (
+  action: () => Promise<unknown>,
+  okMessage: string,
+  after?: () => void,
+  /** Trả lại state cục bộ (ô nhập đang gõ dở) khi ghi lỗi. */
+  onError?: () => void,
+) => Promise<void>;
 type GroupMode = "single" | "size" | "multi";
 
 /**
@@ -55,7 +61,7 @@ export default function AdminVariantsPage() {
     return products.filter((p) => normalizeSearch(p.name).includes(q));
   }, [products, query]);
 
-  const groupsState = useAsync(
+  const groupsState = useAsync<AdminOptionGroup[]>(
     () =>
       selectedProductId
         ? fetchProductOptionGroups(selectedProductId)
@@ -63,18 +69,99 @@ export default function AdminVariantsPage() {
     [selectedProductId],
   );
 
-  const sharedState = useAsync(() => fetchSharedOptionGroups(), []);
-  const assignState = useAsync(() => fetchOptionGroupAssignments(), []);
+  const sharedState = useAsync<AdminOptionGroup[]>(() => fetchSharedOptionGroups(), []);
+  const assignState = useAsync<Record<string, string[]>>(
+    () => fetchOptionGroupAssignments(),
+    [],
+  );
 
-  const run: RunFn = async (action, okMessage) => {
+  // Sửa tại chỗ: thao tác chỉ ghi 1 request rồi cập nhật state, KHÔNG đọc lại
+  // cả 3 danh sách. Đọc lại sau mỗi click làm nháy UI và mất vị trí đang thao tác.
+  // Một nhóm có thể nằm ở danh sách riêng của món hoặc danh sách dùng chung.
+  function updateGroups(apply: (prev: AdminOptionGroup[]) => AdminOptionGroup[]) {
+    groupsState.setData((prev) => (prev ? apply(prev) : prev));
+    sharedState.setData((prev) => (prev ? apply(prev) : prev));
+  }
+
+  function patchGroup(id: string, patch: Partial<AdminOptionGroup>) {
+    updateGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+  }
+
+  function dropGroup(id: string) {
+    updateGroups((prev) => prev.filter((g) => g.id !== id));
+    assignState.setData((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function patchOption(optionId: string, patch: Partial<Tables<"product_options">>) {
+    updateGroups((prev) =>
+      prev.map((g) => ({
+        ...g,
+        product_options: g.product_options.map((o) => (o.id === optionId ? { ...o, ...patch } : o)),
+      })),
+    );
+  }
+
+  function dropOption(optionId: string) {
+    updateGroups((prev) =>
+      prev.map((g) => ({
+        ...g,
+        product_options: g.product_options.filter((o) => o.id !== optionId),
+      })),
+    );
+  }
+
+  function patchAssignment(groupId: string, productIds: string[]) {
+    assignState.setData((prev) => ({ ...(prev ?? {}), [groupId]: productIds }));
+  }
+
+  // Mỗi nhóm chỉ có tối đa 1 request gán đang chạy. Tick liên tiếp thì các lần
+  // sau chỉ ghi đè giá trị chờ, và vòng lặp ghi nốt giá trị MỚI NHẤT khi request
+  // trước xong — nhờ vậy hai lần delete+insert không chồng nhau ghi đè lẫn nhau.
+  const pendingAssign = useRef(new Map<string, string[]>());
+  const writingAssign = useRef(new Set<string>());
+
+  async function saveAssignment(groupId: string, productIds: string[]) {
+    // Hiện ngay cho phản hồi tức thì; lỗi thì đọc lại để rollback về đúng DB.
+    patchAssignment(groupId, productIds);
+    pendingAssign.current.set(groupId, productIds);
+    if (writingAssign.current.has(groupId)) return;
+
+    writingAssign.current.add(groupId);
+    try {
+      while (pendingAssign.current.has(groupId)) {
+        const next = pendingAssign.current.get(groupId)!;
+        pendingAssign.current.delete(groupId);
+        await setOptionGroupProducts(groupId, next);
+      }
+      toast.success("Đã cập nhật danh sách món dùng nhóm.");
+    } catch (e) {
+      pendingAssign.current.delete(groupId);
+      toast.error(e instanceof Error ? e.message : "Không lưu được, thử lại nhé.");
+      // Request có thể đã xoá xong mà chưa chèn lại → đọc đúng bảng gán này.
+      assignState.reload();
+    } finally {
+      writingAssign.current.delete(groupId);
+    }
+  }
+
+  const run: RunFn = async (action, okMessage, after, onError) => {
     try {
       await action();
       toast.success(okMessage);
+      after?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Không lưu được, thử lại nhé.");
+      onError?.();
+      // Ghi có thể đã dở dang (vd xoá xong nhưng chèn lỗi) nên state local có
+      // thể lệch DB — đọc lại để UI không hiển thị thứ chưa lưu được.
       groupsState.reload();
       sharedState.reload();
       assignState.reload();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Không lưu được, thử lại nhé.");
     }
   };
 
@@ -145,6 +232,8 @@ export default function AdminVariantsPage() {
                       sortOrder: sharedGroups.length + 1,
                     }),
                   `Đã tạo nhóm dùng chung "${name}".`,
+                  // Nhóm mới cần id do DB sinh ra nên phải đọc lại danh sách này.
+                  sharedState.reload,
                 );
               }}
             >
@@ -183,14 +272,14 @@ export default function AdminVariantsPage() {
                   key={group.id}
                   group={group}
                   onRun={run}
+                  onPatch={(patch) => patchGroup(group.id, patch)}
+                  onDrop={() => dropGroup(group.id)}
+                  onPatchOption={patchOption}
+                  onDropOption={dropOption}
+                  reloadGroups={sharedState.reload}
                   products={products}
                   assigned={assignments[group.id] ?? []}
-                  onAssign={(productIds) =>
-                    void run(
-                      () => setOptionGroupProducts(group.id, productIds),
-                      "Đã cập nhật danh sách món dùng nhóm.",
-                    )
-                  }
+                  onAssign={(productIds) => void saveAssignment(group.id, productIds)}
                 />
               ))
             )}
@@ -300,6 +389,7 @@ export default function AdminVariantsPage() {
                             sortOrder: groups.length + 1,
                           }),
                         `Đã tạo nhóm "${name}".`,
+                        groupsState.reload,
                       );
                     }}
                   >
@@ -330,7 +420,18 @@ export default function AdminVariantsPage() {
                     chung” rồi gán món này vào.
                   </div>
                 ) : (
-                  groups.map((group) => <GroupCard key={group.id} group={group} onRun={run} />)
+                  groups.map((group) => (
+                    <GroupCard
+                      key={group.id}
+                      group={group}
+                      onRun={run}
+                      onPatch={(patch) => patchGroup(group.id, patch)}
+                      onDrop={() => dropGroup(group.id)}
+                      onPatchOption={patchOption}
+                      onDropOption={dropOption}
+                      reloadGroups={groupsState.reload}
+                    />
+                  ))
                 )}
               </>
             )}
@@ -458,12 +559,24 @@ function ModeButton({
 function GroupCard({
   group,
   onRun,
+  onPatch,
+  onDrop,
+  onPatchOption,
+  onDropOption,
+  reloadGroups,
   products,
   assigned,
   onAssign,
 }: {
   group: AdminOptionGroup;
   onRun: RunFn;
+  /** Sửa nhóm trong state local — không đọc lại DB sau mỗi thao tác. */
+  onPatch: (patch: Partial<AdminOptionGroup>) => void;
+  onDrop: () => void;
+  onPatchOption: (optionId: string, patch: Partial<Tables<"product_options">>) => void;
+  onDropOption: (optionId: string) => void;
+  /** Tạo mới cần id do DB sinh ra nên phải đọc lại đúng danh sách này. */
+  reloadGroups: () => void;
   /** Chỉ truyền cho nhóm dùng chung: danh sách món để tick gán. */
   products?: AdminProduct[];
   assigned?: string[];
@@ -491,7 +604,13 @@ function GroupCard({
                 setName(group.name);
                 return;
               }
-              void onRun(() => updateOptionGroup(group.id, { name: next }), "Đã đổi tên nhóm.");
+              void onRun(
+                () => updateOptionGroup(group.id, { name: next }),
+                "Đã đổi tên nhóm.",
+                () => onPatch({ name: next }),
+                // Lỗi thì trả ô nhập về tên đang lưu, không để chữ gõ dở nằm lại.
+                () => setName(group.name),
+              );
             }}
             aria-label="Tên nhóm biến thể"
             className={inputClass}
@@ -509,7 +628,7 @@ function GroupCard({
               ? `Xoá nhóm dùng chung "${group.name}" và gỡ khỏi mọi món?`
               : `Xoá nhóm "${group.name}" và toàn bộ biến thể bên trong?`;
             if (!confirm(question)) return;
-            void onRun(() => deleteOptionGroup(group.id), "Đã xoá nhóm.");
+            void onRun(() => deleteOptionGroup(group.id), "Đã xoá nhóm.", onDrop);
           }}
           aria-label={`Xoá nhóm ${group.name}`}
           className="inline-flex size-11 shrink-0 items-center justify-center rounded-card text-error transition-colors hover:bg-error-container"
@@ -522,17 +641,16 @@ function GroupCard({
         value={mode}
         onChange={(next) => {
           if (next === mode) return;
+          const patch =
+            next === "single"
+              ? { is_required: true, min_select: 1, max_select: 1, price_mode: "replace" }
+              : next === "size"
+                ? { is_required: true, min_select: 1, max_select: 1, price_mode: "delta" }
+                : { is_required: false, min_select: 0, max_select: 5, price_mode: "delta" };
           void onRun(
-            () =>
-              updateOptionGroup(
-                group.id,
-                next === "single"
-                  ? { is_required: true, min_select: 1, max_select: 1, price_mode: "replace" }
-                  : next === "size"
-                    ? { is_required: true, min_select: 1, max_select: 1, price_mode: "delta" }
-                    : { is_required: false, min_select: 0, max_select: 5, price_mode: "delta" },
-              ),
+            () => updateOptionGroup(group.id, patch),
             "Đã đổi kiểu nhóm.",
+            () => onPatch(patch),
           );
         }}
       />
@@ -544,6 +662,7 @@ function GroupCard({
             void onRun(
               () => updateOptionGroup(group.id, { is_required: !group.is_required }),
               group.is_required ? "Biến thể thành tuỳ chọn." : "Biến thể thành bắt buộc.",
+              () => onPatch({ is_required: !group.is_required }),
             )
           }
           onLabel="Bắt buộc chọn"
@@ -563,6 +682,8 @@ function GroupCard({
               option={option}
               priceMode={group.price_mode}
               onRun={onRun}
+              onPatch={(patch) => onPatchOption(option.id, patch)}
+              onDrop={() => onDropOption(option.id)}
             />
           ))}
         </ul>
@@ -589,6 +710,7 @@ function GroupCard({
                 sortOrder: group.product_options.length + 1,
               }),
             `Đã thêm "${n}".`,
+            reloadGroups,
           );
         }}
       >
@@ -680,10 +802,14 @@ function OptionRow({
   option,
   priceMode,
   onRun,
+  onPatch,
+  onDrop,
 }: {
   option: Tables<"product_options">;
   priceMode: string;
   onRun: RunFn;
+  onPatch: (patch: Partial<Tables<"product_options">>) => void;
+  onDrop: () => void;
 }) {
   const savedPrice = Number(option.price_delta);
   const [name, setName] = useState(option.name);
@@ -717,6 +843,11 @@ function OptionRow({
                   price_delta: price,
                 }),
               "Đã lưu biến thể.",
+              () => onPatch({ name: name.trim() || option.name, price_delta: price }),
+              () => {
+                setName(option.name);
+                setPrice(savedPrice);
+              },
             )
           }
           className="inline-flex min-h-[44px] shrink-0 items-center rounded-card bg-primary-container px-3 text-label-sm text-on-primary-container"
@@ -731,6 +862,7 @@ function OptionRow({
           void onRun(
             () => updateOption(option.id, { is_available: !option.is_available }),
             option.is_available ? "Đã đánh dấu tạm hết." : "Đã bật bán lại.",
+            () => onPatch({ is_available: !option.is_available }),
           )
         }
         onLabel="Còn bán"
@@ -740,7 +872,7 @@ function OptionRow({
 
       <button
         type="button"
-        onClick={() => void onRun(() => deleteOption(option.id), "Đã xoá biến thể.")}
+        onClick={() => void onRun(() => deleteOption(option.id), "Đã xoá biến thể.", onDrop)}
         aria-label={`Xoá ${option.name}`}
         className="inline-flex size-11 shrink-0 items-center justify-center rounded-card text-error transition-colors hover:bg-error-container"
       >

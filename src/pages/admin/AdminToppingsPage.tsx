@@ -23,10 +23,25 @@ import {
   type ToppingGroupFull,
 } from "@/lib/adminQueries";
 
-type RunFn = (action: () => Promise<unknown>, okMessage: string) => Promise<void>;
+type RunFn = (
+  action: () => Promise<unknown>,
+  okMessage: string,
+  after?: () => void,
+  /** Trả lại state cục bộ (ô nhập đang gõ dở) khi ghi lỗi. */
+  onError?: () => void,
+) => Promise<void>;
+
+/** Toàn bộ dữ liệu trang này đọc trong 1 lần, sửa tại chỗ sau mỗi thao tác. */
+type ToppingsData = {
+  groups: ToppingGroupFull[];
+  products: AdminProduct[];
+  assignments: Record<string, string[]>;
+};
+
+type MutateFn = (fn: (prev: ToppingsData) => ToppingsData) => void;
 
 export default function AdminToppingsPage() {
-  const state = useAsync(
+  const state = useAsync<ToppingsData>(
     async () => ({
       groups: await fetchToppingGroups(),
       products: await fetchAdminProducts(),
@@ -39,13 +54,20 @@ export default function AdminToppingsPage() {
   const [query, setQuery] = useState("");
   const [newGroup, setNewGroup] = useState("");
 
-  const run: RunFn = async (action, okMessage) => {
+  // Sửa state tại chỗ sau khi ghi xong: không đọc lại 3 danh sách mỗi lần bấm.
+  const mutate: MutateFn = (fn) => state.setData((prev) => (prev ? fn(prev) : prev));
+
+  const run: RunFn = async (action, okMessage, after, onError) => {
     try {
       await action();
       toast.success(okMessage);
-      state.reload();
+      after?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không lưu được, thử lại nhé.");
+      onError?.();
+      // Ghi có thể đã dở dang (vd xoá xong nhưng chèn lỗi) nên state local có
+      // thể lệch DB — đọc lại để UI không hiển thị thứ chưa lưu được.
+      state.reload();
     }
   };
 
@@ -83,7 +105,7 @@ export default function AdminToppingsPage() {
             const name = newGroup.trim();
             if (!name) return;
             setNewGroup("");
-            void run(() => createToppingGroup(name), `Đã tạo nhóm "${name}".`);
+            void run(() => createToppingGroup(name), `Đã tạo nhóm "${name}".`, state.reload);
           }}
         >
           <input
@@ -180,6 +202,8 @@ export default function AdminToppingsPage() {
                 assignedProductIds={state.data!.assignments[selected.id] ?? []}
                 onClose={() => setSelectedId(null)}
                 onRun={run}
+                mutate={mutate}
+                onReload={state.reload}
               />
             ) : (
               <div className="rounded-card-lg border border-dashed border-outline-variant p-6 text-center text-body-sm text-on-surface-variant">
@@ -249,12 +273,17 @@ function EditPanel({
   assignedProductIds,
   onClose,
   onRun,
+  mutate,
+  onReload,
 }: {
   group: ToppingGroupFull;
   products: AdminProduct[];
   assignedProductIds: string[];
   onClose: () => void;
   onRun: RunFn;
+  mutate: MutateFn;
+  /** Chỉ dùng cho thao tác tạo mới (cần id do DB sinh ra). */
+  onReload: () => void;
 }) {
   const [name, setName] = useState(group.name);
   const [itemName, setItemName] = useState("");
@@ -264,6 +293,18 @@ function EditPanel({
   const assignDirty =
     picked.length !== assignedProductIds.length ||
     picked.some((id) => !assignedProductIds.includes(id));
+
+  // Sửa đúng nhóm/topping đang mở trong state local — không đọc lại DB.
+  const patchGroup = (fn: (g: ToppingGroupFull) => ToppingGroupFull) =>
+    mutate((prev) => ({
+      ...prev,
+      groups: prev.groups.map((g) => (g.id === group.id ? fn(g) : g)),
+    }));
+
+  const patchItem = (
+    id: string,
+    fn: (item: ToppingGroupFull["topping_items"][number]) => ToppingGroupFull["topping_items"][number],
+  ) => patchGroup((g) => ({ ...g, topping_items: g.topping_items.map((it) => (it.id === id ? fn(it) : it)) }));
 
   return (
     <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-4 shadow-card">
@@ -293,7 +334,13 @@ function EditPanel({
               setName(group.name);
               return;
             }
-            void onRun(() => renameToppingGroup(group.id, next), "Đã đổi tên nhóm.");
+            void onRun(
+              () => renameToppingGroup(group.id, next),
+              "Đã đổi tên nhóm.",
+              () => patchGroup((g) => ({ ...g, name: next })),
+              // Lỗi thì trả ô nhập về tên đang lưu, không để chữ gõ dở nằm lại.
+              () => setName(group.name),
+            );
           }}
           className="min-h-[44px] rounded-card border border-outline-variant bg-surface-container-lowest px-3 text-body-md text-on-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-container"
         />
@@ -321,6 +368,7 @@ function EditPanel({
                     void onRun(
                       () => updateToppingItem(item.id, { is_available: !item.is_available }),
                       item.is_available ? "Đã đánh dấu tạm hết." : "Đã bật bán lại.",
+                      () => patchItem(item.id, (it) => ({ ...it, is_available: !it.is_available })),
                     )
                   }
                   onLabel="Còn bán"
@@ -330,7 +378,17 @@ function EditPanel({
 
                 <button
                   type="button"
-                  onClick={() => void onRun(() => deleteToppingItem(item.id), "Đã xoá topping.")}
+                  onClick={() =>
+                    void onRun(
+                      () => deleteToppingItem(item.id),
+                      "Đã xoá topping.",
+                      () =>
+                        patchGroup((g) => ({
+                          ...g,
+                          topping_items: g.topping_items.filter((it) => it.id !== item.id),
+                        })),
+                    )
+                  }
                   aria-label={`Xoá ${item.name}`}
                   className="inline-flex size-11 items-center justify-center rounded-card text-error transition-colors hover:bg-error-container"
                 >
@@ -356,6 +414,7 @@ function EditPanel({
             void onRun(
               () => createToppingItem(group.id, n, price, group.topping_items.length + 1),
               `Đã thêm "${n}".`,
+              onReload,
             );
           }}
         >
@@ -416,7 +475,17 @@ function EditPanel({
         <button
           type="button"
           disabled={!assignDirty}
-          onClick={() => void onRun(() => setGroupProducts(group.id, picked), "Đã cập nhật món áp dụng.")}
+          onClick={() =>
+            void onRun(
+              () => setGroupProducts(group.id, picked),
+              "Đã cập nhật món áp dụng.",
+              () =>
+                mutate((prev) => ({
+                  ...prev,
+                  assignments: { ...prev.assignments, [group.id]: picked },
+                })),
+            )
+          }
           className="min-h-[44px] rounded-card bg-primary-container px-4 text-label-lg text-on-primary-container transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           Lưu danh sách món
@@ -428,7 +497,20 @@ function EditPanel({
         onClick={() => {
           if (!confirm(`Xoá nhóm "${group.name}" và toàn bộ topping bên trong?`)) return;
           onClose();
-          void onRun(() => deleteToppingGroup(group.id), "Đã xoá nhóm.");
+          void onRun(
+            () => deleteToppingGroup(group.id),
+            "Đã xoá nhóm.",
+            () =>
+              mutate((prev) => {
+                const assignments = { ...prev.assignments };
+                delete assignments[group.id];
+                return {
+                  ...prev,
+                  groups: prev.groups.filter((g) => g.id !== group.id),
+                  assignments,
+                };
+              }),
+          );
         }}
         className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-card border border-outline-variant text-label-md text-error transition-colors hover:bg-error-container"
       >
