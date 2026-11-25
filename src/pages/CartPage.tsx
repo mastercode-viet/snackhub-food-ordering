@@ -213,7 +213,8 @@ export default function CartPage() {
                 type="button"
                 disabled={!canCheckout}
                 onClick={() => navigate("/dat-hang")}
-                className="flex h-14 w-full items-center justify-between rounded-full bg-inverse-surface px-6 text-inverse-on-surface shadow-cta transition-all disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none"
+                data-guide="checkout"
+                className="guide-shine flex h-14 w-full items-center justify-between rounded-full bg-inverse-surface px-6 text-inverse-on-surface shadow-cta transition-all disabled:cursor-not-allowed disabled:bg-surface-container-high disabled:text-on-surface-variant disabled:shadow-none"
               >
                 <span className="flex items-center gap-2 text-label-lg font-bold">
                   Chốt đơn nè!

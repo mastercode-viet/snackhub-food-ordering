@@ -50,9 +50,10 @@ export default function ProductGrid({
         loading ? "opacity-60" : ""
       }`}
     >
-      {products.map((p) => (
+      {products.map((p, index) => (
         <motion.div key={p.id} variants={itemVariants}>
-          <ProductCard product={p} />
+          {/* Thẻ đầu tiên mang nhịp thở để hướng dẫn khách mới đúng một điểm. */}
+          <ProductCard product={p} highlight={index === 0} />
         </motion.div>
       ))}
     </motion.div>

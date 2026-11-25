@@ -234,7 +234,8 @@ export default function ProductOptionSheet({
             type="button"
             onClick={handleAdd}
             disabled={loading || !canAdd}
-            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-full bg-inverse-surface px-5 text-label-lg text-inverse-on-surface shadow-cta transition-transform active:scale-95 disabled:opacity-50"
+            data-guide="sheet-add"
+            className="guide-pulse flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-full bg-inverse-surface px-5 text-label-lg text-inverse-on-surface shadow-cta transition-transform active:scale-95 disabled:opacity-50"
           >
             <span>Thêm vào giỏ</span>
             {!loading && <span className="font-bold">{formatVnd(lineTotal)}</span>}

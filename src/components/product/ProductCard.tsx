@@ -7,7 +7,17 @@ import ProductOptionSheet from "@/components/product/ProductOptionSheet";
 import { discountBadgeLabel, discountedPrice, formatVnd } from "@/lib/format";
 import type { ProductWithCategory } from "@/lib/queries";
 
-export default function ProductCard({ product }: { product: ProductWithCategory }) {
+/**
+ * `highlight` bật nhịp thở quanh nút "+" — chỉ dùng cho thẻ đầu tiên của lưới
+ * để hướng dẫn khách mới bấm đúng chỗ. Mọi thẻ cùng thở sẽ thành nhấp nháy.
+ */
+export default function ProductCard({
+  product,
+  highlight = false,
+}: {
+  product: ProductWithCategory;
+  highlight?: boolean;
+}) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const hasDiscount = product.discount_value > 0;
   const finalPrice = discountedPrice(product.base_price, product.discount_type, product.discount_value);
@@ -73,7 +83,8 @@ export default function ProductCard({ product }: { product: ProductWithCategory 
               type="button"
               onClick={() => setSheetOpen(true)}
               aria-label={`Thêm ${product.name} vào giỏ`}
-              className="relative z-20 grid size-11 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow group-hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+              data-guide="add-item"
+              className={`relative z-20 grid size-11 shrink-0 place-items-center rounded-full bg-primary text-on-primary shadow-cta transition-shadow group-hover:shadow-card-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${highlight ? "guide-pulse" : ""}`}
             >
               <Plus size={18} strokeWidth={2.8} />
             </motion.button>

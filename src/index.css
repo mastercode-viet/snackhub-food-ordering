@@ -177,3 +177,95 @@
     }
   }
 }
+
+/* ── Hướng dẫn đặt hàng cho khách mới (OrderGuideTour) ──────────────────────
+ * Hai hiệu ứng dùng chung, đặt ở đây vì chúng bám vào các nút nằm ở ba file
+ * khác nhau (ProductCard, ProductOptionSheet, CartPage) — khai báo một lần
+ * trong CSS thì component chỉ cần thêm một class.
+ *
+ * Cả hai đều tôn trọng prefers-reduced-motion: người đã tắt hiệu ứng chuyển
+ * động trong hệ điều hành sẽ thấy nút đứng yên, không nhấp nháy.
+ */
+@layer utilities {
+  @keyframes guide-halo {
+    0% {
+      box-shadow: 0 0 0 0 rgb(var(--color-primary-container) / 0.45);
+    }
+    65% {
+      box-shadow: 0 0 0 12px rgb(var(--color-primary-container) / 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgb(var(--color-primary-container) / 0);
+    }
+  }
+
+  /* Nhịp thở quanh nút quan trọng nhất trên màn hình. */
+  .guide-pulse {
+    position: relative;
+  }
+  .guide-pulse::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    pointer-events: none;
+    animation: guide-halo 2.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  @keyframes guide-shine {
+    0% {
+      left: -60%;
+    }
+    42% {
+      left: 125%;
+    }
+    100% {
+      left: 125%;
+    }
+  }
+
+  /* Vệt sáng lướt qua nút chốt đơn, chu kỳ 4,2s — đủ thưa để không gây nhức mắt. */
+  .guide-shine {
+    position: relative;
+    overflow: hidden;
+  }
+  .guide-shine::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 42%;
+    height: 100%;
+    pointer-events: none;
+    background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.28), transparent);
+    transform: skewX(-18deg);
+    animation: guide-shine 4.2s ease-in-out infinite;
+  }
+
+  @keyframes guide-nudge {
+    0%,
+    72%,
+    100% {
+      transform: translateY(0);
+    }
+    80% {
+      transform: translateY(-3px);
+    }
+    88% {
+      transform: translateY(0);
+    }
+  }
+
+  /* Nhãn gợi ý nhún nhẹ để mắt bắt được, nhưng không rung liên tục. */
+  .guide-nudge {
+    animation: guide-nudge 2.4s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .guide-pulse::after,
+    .guide-shine::after,
+    .guide-nudge {
+      animation: none;
+    }
+  }
+}
