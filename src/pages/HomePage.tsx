@@ -76,7 +76,7 @@ export default function HomePage() {
     ? `Kết quả cho "${debouncedSearch.trim()}"`
     : activeCategory
       ? activeCategory.name
-      : "Món ăn ngon hơn nYc";
+      : "Ngon lắmm ";
 
   return (
     <div className="pt-safe">
@@ -109,7 +109,7 @@ export default function HomePage() {
             <div className="flex min-w-0 flex-col">
               <StoreStatusLine isOpen={storeOpen.data} />
               <h1 className="mt-0.5 text-headline-md tracking-tight text-on-surface">
-                Thượng đế nay ăn gì?
+                Ăn gì chưa người đẹp ?
               </h1>
             </div>
             <StoreHoursBadge settings={settings.data} />
