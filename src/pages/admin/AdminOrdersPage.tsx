@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useOutletContext, useSearchParams } from "react-router-dom";
+import { AnimatePresence, motion } from "motion/react";
 import {
   AlarmClock,
   AlertTriangle,
@@ -14,6 +16,8 @@ import {
   Truck,
   RotateCw,
   Timer,
+  Wallet,
+  X,
 } from "lucide-react";
 import { useAsync } from "@/hooks/useAsync";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -37,7 +41,7 @@ import {
   fetchAdminOrders,
   fetchAdminOrdersPage,
   ORDERS_PAGE_SIZE,
-  completeInStoreOrder,
+  completeOrder,
   markOrderPaid,
   setOrderStatus,
   type AdminOrder,
@@ -47,7 +51,7 @@ import {
 /** Bước kế tiếp của một đơn chạy trơn tru. Huỷ nằm ngoài luồng này. */
 const NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>> = {
   pending_confirmation: { status: "preparing", label: "Xác nhận đơn" },
-  preparing: { status: "delivering", label: "Bắt đầu giao" },
+  preparing: { status: "delivering", label: "Đã chuẩn bị xong" },
   delivering: { status: "completed", label: "Hoàn tất đơn" },
 };
 
@@ -432,46 +436,60 @@ export default function AdminOrdersPage() {
     }
   }
 
-  // Nút thao tác nhanh trên từng dòng FIFO — chống bấm lặp và kiểm tra stale state
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  // Nút thao tác nhanh trên từng dòng — chống bấm lặp và kiểm tra stale state
+  const [actionLoading, setActionLoading] = useState<{ id: string; intent: "ready" | "complete" } | null>(
+    null,
+  );
 
-  async function handleQuickAction(order: AdminOrder) {
-    if (actionLoadingId) return; // chống bấm lặp khi đang xử lý đơn khác
-    // Lấy lại state mới nhất từ bộ nhớ để chống stale
-    const fresh = orders.find((o) => o.id === order.id);
+  async function handleQuickAction(order: AdminOrder, intent: "ready" | "complete" = "ready") {
+    if (actionLoading) return; // chống bấm lặp khi đang xử lý đơn khác
+    // Lấy lại state mới nhất từ bộ nhớ để chống stale. Tab lịch sử phân trang ở
+    // server nên đơn đang xem có thể chỉ nằm trong `list`, không nằm trong `orders`.
+    const fresh = orders.find((o) => o.id === order.id) ?? list.find((o) => o.id === order.id);
     if (!fresh) return;
 
     const inStore = fresh.delivery_method === "in_store";
+    const isFinished = fresh.status === "completed" || fresh.status === "cancelled";
     const blockedUnpaidPayos = fresh.payment_method === "payos" && fresh.payment_status !== "paid";
 
     let action: (() => Promise<void>) | null = null;
     let okMsg = "";
 
-    if (inStore && fresh.status !== "completed" && fresh.status !== "cancelled") {
+    if (!isFinished && intent === "ready") {
+      // "Đã chuẩn bị xong": món đã làm xong → đơn sang "Đang giao / Chờ lấy".
+      // Áp cho cả đơn giao lẫn đơn khách đặt tại quầy (sang "Chờ lấy" chờ khách
+      // tới nhận). Bước này không đụng tới tiền nên vẫn bấm được khi webhook chưa về.
+      action = () => setOrderStatus(fresh.id, "delivering");
+      okMsg = `Đơn ${fresh.order_code}: Đã chuẩn bị xong — chờ giao/nhận hàng.`;
+    } else if (inStore && !isFinished) {
       if (blockedUnpaidPayos) {
         toast.error("Đơn VietQR chưa nhận tiền — chờ khách thanh toán xong.");
         return;
       }
       const collectCash = fresh.payment_method === "cod" && fresh.payment_status !== "paid";
-      action = () => completeInStoreOrder(fresh.id, collectCash);
+      action = () => completeOrder(fresh.id, collectCash);
       okMsg = `Đơn ${fresh.order_code}: Hoàn tất.`;
-    } else {
-      const next = NEXT[fresh.status];
-      if (!next) return;
+    } else if (!isFinished) {
+      // "Hoàn tất & thu tiền" ngay trên thẻ hàng đợi: đơn COD chưa thu thì ghi
+      // nhận tiền và hoàn tất trong CÙNG một UPDATE — trigger DB thấy payment_status
+      // = 'paid' ngay nên cho phép 'completed', tiền vẫn được ghi nhận trước khi chốt đơn.
       if (blockedUnpaidPayos) {
-        toast.error("Đơn VietQR chưa nhận tiền — không thể xác nhận.");
+        toast.error("Đơn VietQR chưa nhận tiền — chờ khách thanh toán xong.");
         return;
       }
-      if (next.status === "completed" && fresh.payment_status !== "paid") {
-        toast.error("Chưa thu tiền — không thể hoàn tất.");
-        return;
+      const collectCash = fresh.payment_method === "cod" && fresh.payment_status !== "paid";
+      if (collectCash) {
+        const ok = window.confirm(
+          `Xác nhận đã nhận đủ ${formatVnd(fresh.total_amount)} tiền mặt và hoàn tất đơn ${fresh.order_code}?`,
+        );
+        if (!ok) return;
       }
-      action = () => setOrderStatus(fresh.id, next.status);
-      okMsg = `Đơn ${fresh.order_code}: ${statusLabel(next.status, fresh.delivery_method)}.`;
+      action = () => completeOrder(fresh.id, collectCash);
+      okMsg = `Đơn ${fresh.order_code}: Hoàn tất.`;
     }
 
     if (!action) return;
-    setActionLoadingId(fresh.id);
+    setActionLoading({ id: fresh.id, intent });
     try {
       await action();
       toast.success(okMsg);
@@ -480,7 +498,7 @@ export default function AdminOrdersPage() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Không cập nhật được, thử lại nhé.");
     } finally {
-      setActionLoadingId(null);
+      setActionLoading(null);
     }
   }
 
@@ -773,6 +791,9 @@ export default function AdminOrdersPage() {
                           now={now}
                           selected={order.id === selectedId}
                           onSelect={() => setSelectedId(order.id)}
+                          onQuickAction={() => void handleQuickAction(order, "ready")}
+                          onCompleteAction={() => void handleQuickAction(order, "complete")}
+                          loadingAction={actionLoading?.id === order.id ? actionLoading.intent : undefined}
                         />
                       ))}
                     </ul>
@@ -789,8 +810,9 @@ export default function AdminOrdersPage() {
                     selected={order.id === selectedId}
                     onSelect={() => setSelectedId(order.id)}
                     queueIndex={tab === "fifo_queue" ? idx + 1 : undefined}
-                    onQuickAction={tab === "fifo_queue" ? () => void handleQuickAction(order) : undefined}
-                    isActionLoading={actionLoadingId === order.id}
+                    onQuickAction={() => void handleQuickAction(order, "ready")}
+                    onCompleteAction={() => void handleQuickAction(order, "complete")}
+                    loadingAction={actionLoading?.id === order.id ? actionLoading.intent : undefined}
                   />
                 ))}
               </ul>
@@ -809,7 +831,9 @@ export default function AdminOrdersPage() {
             )}
           </section>
 
-          <aside className="w-full shrink-0 xl:w-[420px]">
+          {/* Desktop: chi tiết nằm ở cột phải. Mobile: mở bằng bottom sheet bên dưới
+              — trước đây panel nằm cuối trang nên phải cuộn hết danh sách mới thấy. */}
+          <aside className="hidden w-full shrink-0 xl:block xl:w-[420px]">
             {selected ? (
               <OrderPanel
                 order={selected}
@@ -825,11 +849,132 @@ export default function AdminOrdersPage() {
           </aside>
         </div>
       )}
+
+      {selected && (
+        <OrderDetailSheet
+          order={selected}
+          now={now}
+          onRun={run}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </div>
   );
 }
 
-function OrderPanel({
+/**
+ * Nút chuyển trạng thái CHÍNH của một đơn. Tách ra để panel desktop và bottom
+ * sheet mobile dùng chung đúng một logic — đặc biệt là ràng buộc "thu tiền
+ * trước khi Hoàn tất", không nhân bản điều kiện thanh toán ở hai nơi.
+ */
+function OrderPrimaryActions({
+  order,
+  email,
+  onRun,
+}: {
+  order: AdminOrder;
+  email: string;
+  onRun: (action: () => Promise<unknown>, okMessage: string) => Promise<void>;
+}) {
+  const inStore = order.delivery_method === "in_store";
+  const isFinished = order.status === "completed" || order.status === "cancelled";
+  const next = inStore ? undefined : NEXT[order.status];
+  // Đơn VietQR chỉ được đẩy tới khi webhook đã xác nhận tiền về — tránh làm đồ
+  // cho đơn chưa trả rồi mới phát hiện khách bỏ ngang.
+  const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
+  // "Thu tiền trước, Hoàn tất sau" — áp cho MỌI phương thức thanh toán, không
+  // riêng payos. DB (orders_stamp_status) đã chặn cứng ở tầng trigger; disable
+  // ở đây chỉ để khỏi bấm-rồi-toast-lỗi.
+  const blockedUnpaidComplete = next?.status === "completed" && order.payment_status !== "paid";
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Tại quầy: "Đã chuẩn bị xong" đẩy đơn sang "Chờ lấy", rồi nút hoàn tất.
+          Tiền mặt → thu tiền + hoàn tất cùng lúc; online → hoàn tất khi webhook đã
+          xác nhận tiền về. */}
+      {inStore && !isFinished && (
+        <>
+          {(order.status === "pending_confirmation" || order.status === "preparing") && (
+            <button
+              type="button"
+              onClick={() =>
+                void onRun(
+                  () => setOrderStatus(order.id, "delivering"),
+                  `Đơn ${order.order_code}: Đã chuẩn bị xong — chờ khách tới lấy.`,
+                )
+              }
+              className="min-h-[48px] w-full rounded-card border border-outline-variant bg-surface-container-lowest px-4 text-label-lg font-semibold text-on-surface transition-transform active:scale-[0.99]"
+            >
+              Đã chuẩn bị xong
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={blockedUnpaidPayos}
+            onClick={() => {
+              const cash = order.payment_method === "cod" && order.payment_status !== "paid";
+              if (cash) {
+                const ok = window.confirm(
+                  `Xác nhận đã nhận đủ ${formatVnd(order.total_amount)} tiền mặt và hoàn tất đơn ${order.order_code}?\n\nGhi nhận dưới tài khoản: ${email}`,
+                );
+                if (!ok) return;
+              }
+              void onRun(() => completeOrder(order.id, cash), `Đơn ${order.order_code}: Hoàn tất.`);
+            }}
+            className="min-h-[48px] w-full rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+          >
+            {order.payment_method === "cod" && order.payment_status !== "paid"
+              ? `Thu ${formatVnd(order.total_amount)} tiền mặt & hoàn tất`
+              : "Hoàn tất đơn"}
+          </button>
+          {blockedUnpaidPayos && (
+            <p className="text-body-sm font-medium text-error">
+              Chưa nhận được tiền online — chờ khách thanh toán xong mới hoàn tất được.
+            </p>
+          )}
+        </>
+      )}
+
+      {next && (
+        <>
+          <button
+            type="button"
+            disabled={blockedUnpaidPayos || blockedUnpaidComplete}
+            onClick={() =>
+              void onRun(
+                () => setOrderStatus(order.id, next.status),
+                `Đơn ${order.order_code}: ${statusLabel(next.status, order.delivery_method)}.`,
+              )
+            }
+            className="min-h-[48px] w-full rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+          >
+            {next.label}
+          </button>
+          {blockedUnpaidPayos && (
+            <p className="text-body-sm font-medium text-error">
+              Đơn VietQR chưa nhận được tiền — chờ khách thanh toán xong mới duyệt được.
+            </p>
+          )}
+          {!blockedUnpaidPayos && blockedUnpaidComplete && (
+            <p className="text-body-sm font-medium text-error">
+              Đơn chưa xác nhận thanh toán — thu tiền xong mới Hoàn tất được.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Chi tiết đơn trên mobile: trượt lên từ mép dưới và phủ NGAY vùng trên màn
+ * hình, thay vì nằm cuối danh sách như trước. Nút chuyển trạng thái ghim ở
+ * đáy sheet để bấm bằng một tay; danh sách đơn phía sau giữ nguyên vị trí cuộn
+ * nên xử lý xong đóng sheet là thấy ngay đơn tiếp theo trong hàng đợi.
+ *
+ * Từ xl trở lên không render: desktop đã có panel cột phải.
+ */
+function OrderDetailSheet({
   order,
   now,
   onRun,
@@ -840,18 +985,94 @@ function OrderPanel({
   onRun: (action: () => Promise<unknown>, okMessage: string) => Promise<void>;
   onClose: () => void;
 }) {
+  const { email } = useOutletContext<AdminOutletContext>();
+  const isFinished = order.status === "completed" || order.status === "cancelled";
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="order-sheet-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-[80] bg-on-surface/40 backdrop-blur-sm xl:hidden"
+      />
+      <motion.div
+        key="order-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Chi tiết đơn ${order.order_code}`}
+        initial={{ y: "100%", opacity: 0.6 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: "100%", opacity: 0 }}
+        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        className="fixed inset-x-0 bottom-0 z-[81] flex max-h-[92dvh] flex-col rounded-t-sheet bg-surface-container-lowest shadow-sheet xl:hidden"
+      >
+        <header className="relative flex shrink-0 items-center gap-2 border-b border-outline-variant px-4 pb-2.5 pt-3">
+          <span
+            aria-hidden="true"
+            className="absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-outline-variant"
+          />
+          <p className="min-w-0 flex-1 truncate pt-1.5 text-label-md font-bold text-on-surface">
+            Chi tiết đơn {order.order_code}
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng chi tiết đơn"
+            className="grid size-10 shrink-0 place-items-center rounded-full border border-outline-variant text-on-surface transition-colors hover:bg-surface-container"
+          >
+            <X size={18} strokeWidth={2.4} />
+          </button>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+          <OrderPanel order={order} now={now} onRun={onRun} onClose={onClose} variant="sheet" />
+        </div>
+
+        {!isFinished && (
+          <div className="shrink-0 border-t border-outline-variant bg-surface-container-lowest px-3 pb-safe pt-3">
+            <OrderPrimaryActions order={order} email={email} onRun={onRun} />
+          </div>
+        )}
+      </motion.div>
+    </AnimatePresence>,
+    document.body,
+  );
+}
+
+function OrderPanel({
+  order,
+  now,
+  onRun,
+  onClose,
+  variant = "panel",
+}: {
+  order: AdminOrder;
+  now: number;
+  onRun: (action: () => Promise<unknown>, okMessage: string) => Promise<void>;
+  onClose: () => void;
+  /** "sheet": nằm trong bottom sheet mobile — nút chính được ghim ở đáy sheet. */
+  variant?: "panel" | "sheet";
+}) {
   const { email, isAdmin, staffId } = useOutletContext<AdminOutletContext>();
   const [cancelling, setCancelling] = useState(false);
   // Đơn tại quầy không đi qua "Đang làm" / "Đang giao": chỉ một nút hoàn tất (xem bên dưới).
   const inStore = order.delivery_method === "in_store";
-  const next = inStore ? undefined : NEXT[order.status];
-  // Đơn VietQR chỉ được đẩy tới khi webhook đã xác nhận tiền về — tránh làm đồ
-  // cho đơn chưa trả rồi mới phát hiện khách bỏ ngang.
-  const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
-  // "Thu tiền trước, Hoàn tất sau" — áp cho MỌI phương thức thanh toán, không
-  // riêng payos. DB (orders_stamp_status) đã chặn cứng ở tầng trigger; disable
-  // ở đây chỉ để khỏi bấm-rồi-toast-lỗi.
-  const blockedUnpaidComplete = next?.status === "completed" && order.payment_status !== "paid";
   // "Người giao là người thu tiền" — đơn đã có người nhận giao (assigned_staff_id
   // set lúc chuyển sang 'delivering') thì chỉ đúng người đó hoặc admin mới bấm
   // "Đã thu tiền" được. Đơn chưa qua bước giao (assigned_staff_id còn null) thì
@@ -863,7 +1084,13 @@ function OrderPanel({
   const isFinished = order.status === "completed" || order.status === "cancelled";
 
   return (
-    <section className="flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-4 shadow-card">
+    <section
+      className={
+        variant === "sheet"
+          ? "flex flex-col gap-space-md"
+          : "flex flex-col gap-space-md rounded-card-lg bg-surface-container-lowest p-4 shadow-card"
+      }
+    >
       <div className="flex items-start justify-between gap-2 border-b border-outline-variant/60 pb-3">
         <div>
           <p className="font-mono text-headline-sm font-bold text-on-surface">{order.order_code}</p>
@@ -1108,63 +1335,8 @@ function OrderPanel({
       )}
 
       <div className="flex flex-col gap-2">
-        {/* Tại quầy: MỘT nút duy nhất. Tiền mặt → thu tiền + hoàn tất cùng lúc;
-            online → hoàn tất khi webhook đã xác nhận tiền về. */}
-        {inStore && !isFinished && (
-          <>
-            <button
-              type="button"
-              disabled={blockedUnpaidPayos}
-              onClick={() => {
-                const cash = order.payment_method === "cod" && order.payment_status !== "paid";
-                if (cash) {
-                  const ok = window.confirm(
-                    `Xác nhận đã nhận đủ ${formatVnd(order.total_amount)} tiền mặt và hoàn tất đơn ${order.order_code}?\n\nGhi nhận dưới tài khoản: ${email}`,
-                  );
-                  if (!ok) return;
-                }
-                void onRun(() => completeInStoreOrder(order.id, cash), `Đơn ${order.order_code}: Hoàn tất.`);
-              }}
-              className="min-h-[48px] rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
-            >
-              {order.payment_method === "cod" && order.payment_status !== "paid"
-                ? `Thu ${formatVnd(order.total_amount)} tiền mặt & hoàn tất`
-                : "Hoàn tất đơn"}
-            </button>
-            {blockedUnpaidPayos && (
-              <p className="text-body-sm font-medium text-error">
-                Chưa nhận được tiền online — chờ khách thanh toán xong mới hoàn tất được.
-              </p>
-            )}
-          </>
-        )}
-
-        {next && (
-          <>
-            <button
-              type="button"
-              disabled={blockedUnpaidPayos || blockedUnpaidComplete}
-              onClick={() =>
-                void onRun(
-                  () => setOrderStatus(order.id, next.status),
-                  `Đơn ${order.order_code}: ${statusLabel(next.status, order.delivery_method)}.`,
-                )
-              }
-              className="min-h-[44px] rounded-card bg-inverse-surface px-4 text-label-lg font-semibold text-inverse-on-surface shadow-cta transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
-            >
-              {next.label}
-            </button>
-            {blockedUnpaidPayos && (
-              <p className="text-body-sm font-medium text-error">
-                Đơn VietQR chưa nhận được tiền — chờ khách thanh toán xong mới duyệt được.
-              </p>
-            )}
-            {!blockedUnpaidPayos && blockedUnpaidComplete && (
-              <p className="text-body-sm font-medium text-error">
-                Đơn chưa xác nhận thanh toán — thu tiền xong mới Hoàn tất được.
-              </p>
-            )}
-          </>
+        {variant === "panel" && (
+          <OrderPrimaryActions order={order} email={email} onRun={onRun} />
         )}
 
         {/* Chỉ đơn COD mới cần nhân viên bấm tay — đơn PayOS được webhook tự đánh dấu paid. */}
@@ -1340,7 +1512,8 @@ function OrderRow({
   onSelect,
   queueIndex,
   onQuickAction,
-  isActionLoading,
+  onCompleteAction,
+  loadingAction,
 }: {
   order: AdminOrder;
   now: number;
@@ -1348,28 +1521,32 @@ function OrderRow({
   onSelect: () => void;
   /** Số thứ tự trong hàng đợi FIFO (1-indexed). Hiện badge #N khi được cung cấp. */
   queueIndex?: number;
-  /** Callback thao tác nhanh trên dòng — chỉ truyền khi tab === "fifo_queue". */
+  /** Bước kế tiếp của đơn (xác nhận / đã chuẩn bị xong...), bấm ngay trên thẻ. */
   onQuickAction?: () => void;
-  /** true khi đơn này đang được xử lý (spinner). */
-  isActionLoading?: boolean;
+  /** "Hoàn tất & thu tiền" ngay trên thẻ — chỉ truyền khi đơn đang làm đồ. */
+  onCompleteAction?: () => void;
+  /** Nút nào đang xử lý — chỉ nút đó hiện spinner, cả hai cùng bị khoá. */
+  loadingAction?: "ready" | "complete";
 }) {
   const sla = getOrderSla(order, now);
   const isFinished = order.status === "completed" || order.status === "cancelled";
   const inStore = order.delivery_method === "in_store";
   const blockedUnpaidPayos = order.payment_method === "payos" && order.payment_status !== "paid";
-
-  // Nhãn nút thao tác nhanh dựa trên trạng thái đơn
-  let quickLabel: string | null = null;
-  if (onQuickAction && !isFinished) {
-    if (inStore) {
-      if (!blockedUnpaidPayos) quickLabel = order.payment_method === "cod" && order.payment_status !== "paid"
-        ? `Thu ${formatVnd(order.total_amount)} & Hoàn tất`
-        : "Hoàn tất đơn";
-    } else {
-      const next = NEXT[order.status];
-      if (next && !blockedUnpaidPayos) quickLabel = next.label;
-    }
-  }
+  // Mọi đơn còn đang xử lý — kể cả đơn khách đặt tại quầy — đều có nút "Đã chuẩn
+  // bị xong": bấm là đơn sang "Đang giao / Chờ lấy" ngay trên thẻ.
+  const canMarkReady =
+    !!onQuickAction &&
+    !isFinished &&
+    (order.status === "pending_confirmation" || order.status === "preparing");
+  // Tại quầy: nút thu tiền & hoàn tất (một bước, không cần qua bước giao).
+  const showInStoreAction = !!onCompleteAction && inStore && !isFinished && !blockedUnpaidPayos;
+  // Hoàn tất chỉ khi đã có tiền (COD thu luôn trong lần bấm) hoặc đơn đã đang giao.
+  const canComplete =
+    !!onCompleteAction &&
+    !inStore &&
+    !isFinished &&
+    !blockedUnpaidPayos &&
+    (canMarkReady || order.status === "delivering");
 
   // Định kiểu khung cảnh báo SLA cho từng thẻ đơn
   let alertCardClass = "hover:bg-surface-container-low";
@@ -1394,6 +1571,7 @@ function OrderRow({
         onClick={onSelect}
         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect()}
         aria-current={selected}
+        aria-label={`Đơn ${order.order_code} của ${order.customer_name}`}
         className={`flex w-full min-h-[48px] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-card px-3 py-3 text-left transition-all cursor-pointer ${alertCardClass}`}
       >
         {/* Badge số thứ tự FIFO */}
@@ -1443,7 +1621,8 @@ function OrderRow({
                   : "bg-surface-container-high text-on-surface-variant"
             }`}
           >
-            {order.payment_status === "paid" ? "✓ Đã TT" : order.payment_method === "payos" ? "Chờ QR" : "Tiền mặt"}
+            <Wallet size={12} strokeWidth={2.4} />
+            {order.payment_status === "paid" ? "Đã TT" : order.payment_method === "payos" ? "Chờ QR" : "Tiền mặt"}
           </span>
         )}
 
@@ -1474,36 +1653,94 @@ function OrderRow({
           </span>
         )}
 
-        <span className="min-w-0 flex-1 truncate text-body-sm text-on-surface-variant">
-          {order.customer_name} · {placeLabel(order)}
-          {order.room ? `-${order.room}` : ""}
+        {/* Tên khách chiếm trọn một dòng riêng, in đậm — dễ đọc nhất trên điện
+            thoại; địa chỉ nằm ngay dưới cùng khối. */}
+        <span className="flex w-full min-w-0 flex-col">
+          <span className="truncate text-label-md font-bold text-on-surface">
+            <span className="font-semibold text-on-surface-variant">KH: </span>
+            {order.customer_name}
+          </span>
+          {!inStore && (
+            <span className="truncate text-body-sm text-on-surface-variant">
+              {placeLabel(order)}
+              {order.room ? `-${order.room}` : ""}
+            </span>
+          )}
         </span>
 
         <span className="text-label-md font-bold text-primary">{formatVnd(order.total_amount)}</span>
 
-        {/* Nút thao tác nhanh — chỉ hiện trong tab FIFO và khi có bước kế tiếp */}
-        {onQuickAction && quickLabel && (
-          <button
-            type="button"
-            disabled={isActionLoading}
-            onClick={(e) => {
-              e.stopPropagation(); // không trigger onSelect của dòng
-              onQuickAction();
-            }}
-            className="ml-auto shrink-0 inline-flex min-h-[36px] items-center gap-1.5 rounded-card bg-inverse-surface px-3 text-label-sm font-semibold text-inverse-on-surface shadow-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isActionLoading ? (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-              </svg>
-            ) : null}
-            {quickLabel}
-          </button>
+        {/* Nút thao tác nhanh trên thẻ. Đơn giao: "Đã chuẩn bị xong" → "Đang giao /
+            Chờ lấy", kèm "Hoàn tất & thu tiền" khi đã có tiền. Tại quầy: "Đã chuẩn
+            bị xong" → "Chờ lấy", kèm nút thu tiền & hoàn tất. */}
+        {onQuickAction && (canMarkReady || showInStoreAction || canComplete) && (
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            {canMarkReady && (
+              <button
+                type="button"
+                disabled={!!loadingAction}
+                onClick={(e) => {
+                  e.stopPropagation(); // không trigger onSelect của dòng
+                  onQuickAction();
+                }}
+                className="shrink-0 inline-flex min-h-[36px] items-center gap-1.5 rounded-card border border-outline-variant bg-surface-container-lowest px-3 text-label-sm font-semibold text-on-surface transition-all hover:bg-surface-container active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loadingAction === "ready" ? (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                ) : null}
+                Đã chuẩn bị xong
+              </button>
+            )}
+
+            {showInStoreAction && (
+              <button
+                type="button"
+                disabled={!!loadingAction}
+                onClick={(e) => {
+                  e.stopPropagation(); // không trigger onSelect của dòng
+                  onCompleteAction?.();
+                }}
+                className="shrink-0 inline-flex min-h-[36px] items-center gap-1.5 rounded-card bg-inverse-surface px-3 text-label-sm font-semibold text-inverse-on-surface shadow-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loadingAction === "complete" ? (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                ) : null}
+                {order.payment_method === "cod" && order.payment_status !== "paid"
+                  ? `Thu ${formatVnd(order.total_amount)} & Hoàn tất`
+                  : "Hoàn tất đơn"}
+              </button>
+            )}
+
+            {canComplete && (
+              <button
+                type="button"
+                disabled={!!loadingAction}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCompleteAction?.();
+                }}
+                className="shrink-0 inline-flex min-h-[36px] items-center gap-1.5 rounded-card bg-inverse-surface px-3 text-label-sm font-semibold text-inverse-on-surface shadow-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loadingAction === "complete" ? (
+                  <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                ) : null}
+                Hoàn tất &amp; thu tiền
+              </button>
+            )}
+          </div>
         )}
 
-        {/* Nút chờ QR — disable, chỉ thông báo khi PayOS chưa thanh toán */}
-        {onQuickAction && !isFinished && blockedUnpaidPayos && (
+        {/* VietQR chưa về tiền và không có nút nào khác — chỉ báo trạng thái chờ */}
+        {onQuickAction && !isFinished && blockedUnpaidPayos && !canMarkReady && (
           <span className="ml-auto shrink-0 inline-flex min-h-[36px] items-center rounded-card border border-amber-400/60 bg-amber-50 px-3 text-label-sm font-semibold text-amber-800 opacity-70">
             Chờ quét QR
           </span>

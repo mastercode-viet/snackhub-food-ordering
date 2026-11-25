@@ -481,11 +481,12 @@ export async function markOrderPaid(id: string): Promise<void> {
 }
 
 /**
- * Đơn "Tại quầy": hoàn tất trong MỘT lần cập nhật. Tiền mặt thì ghi nhận đã thu
- * cùng lúc — trigger orders_stamp_status thấy payment_status = 'paid' ngay trong
- * cùng UPDATE nên cho phép 'completed', và tự gắn collected_by_staff_id.
+ * Hoàn tất đơn trong MỘT lần cập nhật, tuỳ chọn ghi nhận thu tiền mặt cùng lúc.
+ * Dùng cho đơn "Tại quầy" và nút "Hoàn tất & thu tiền" ngay trên thẻ hàng đợi —
+ * trigger orders_stamp_status thấy payment_status = 'paid' ngay trong cùng UPDATE
+ * nên cho phép 'completed', và tự gắn collected_by_staff_id.
  */
-export async function completeInStoreOrder(id: string, collectCash: boolean): Promise<void> {
+export async function completeOrder(id: string, collectCash: boolean): Promise<void> {
   const patch = collectCash
     ? { status: "completed" as const, payment_status: "paid" as const }
     : { status: "completed" as const };

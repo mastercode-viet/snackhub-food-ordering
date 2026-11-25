@@ -6,20 +6,37 @@ import type { Tables } from "@/types/database";
 type Status = Tables<"orders">["status"];
 type DeliveryMethod = Tables<"orders">["delivery_method"];
 
-/** Nhãn tiếng Việt của 5 trạng thái trong enum order_status. */
+/**
+ * Nhãn tiếng Việt của 5 trạng thái trong enum order_status.
+ *
+ * Đây là nhãn CHUNG cho bộ lọc (một chip phải gộp cả đơn giao lẫn đơn tại quầy),
+ * nên `delivering` ghi đủ cả hai cách gọi. Badge/timeline dùng `statusLabel()`
+ * để ra đúng một nhãn theo hình thức nhận hàng.
+ */
 export const STATUS_LABEL: Record<Status, string> = {
   pending_confirmation: "Chờ xác nhận",
   preparing: "Đang làm đồ",
-  delivering: "Đang giao",
+  delivering: "Đang giao / Chờ lấy",
   completed: "Hoàn tất",
   cancelled: "Đã huỷ",
 };
 
+/** Nhãn theo hình thức nhận hàng — "delivering" của đơn tại quầy là "Chờ lấy". */
+const DELIVERY_LABEL: Record<Status, string> = {
+  ...STATUS_LABEL,
+  delivering: "Đang giao",
+};
+
+const IN_STORE_LABEL: Record<Status, string> = {
+  ...STATUS_LABEL,
+  pending_confirmation: "Chờ tại quầy",
+  delivering: "Chờ lấy",
+};
+
 /** Thứ tự trình bày: 4 bước theo luồng, "đã huỷ" nằm ngoài luồng nên xếp cuối. */
-/** Đơn tại quầy chỉ có 2 bước: chờ quầy xác nhận → hoàn tất (không làm/giao riêng). */
+/** Đơn tại quầy: chờ quầy xác nhận → chờ khách tới lấy → hoàn tất (không giao). */
 export function statusLabel(status: Status, method: DeliveryMethod = "delivery"): string {
-  if (method === "in_store" && status === "pending_confirmation") return "Chờ tại quầy";
-  return STATUS_LABEL[status];
+  return (method === "in_store" ? IN_STORE_LABEL : DELIVERY_LABEL)[status];
 }
 
 export const STATUS_ORDER = [
@@ -58,6 +75,12 @@ const IN_STORE_FLOW: typeof FLOW = [
     status: "pending_confirmation",
     label: "Chờ tại quầy",
     detail: "Đưa mã đơn cho nhân viên tại quầy",
+    icon: Store,
+  },
+  {
+    status: "delivering",
+    label: "Chờ lấy",
+    detail: "Món đã sẵn sàng — mời bạn tới quầy nhận",
     icon: Store,
   },
   { status: "completed", label: "Hoàn tất", detail: "Bạn đã nhận món tại quầy. Chúc bạn ngon miệng!", icon: PackageCheck },
